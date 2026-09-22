@@ -12,7 +12,7 @@ line is not a release; the list at the end says what closes each one.
 | | |
 |---|---|
 | Windows installer | built: `LowEnd-1.0.0-Windows.exe`, 182,606,307 bytes, SHA-256 `139190630ED30819FE68431C1D029AE292A210C26A90B03D8A387BA60336F075` — **unsigned** |
-| macOS package | pipeline written, **never run** (the repository has no GitHub remote, and macOS cannot be built on Windows) |
+| macOS package | built, signed and notarized in CI: `LowEnd-1.0.0-Tester-macOS.pkg`, 178,107,608 bytes, SHA-256 `6922b2644801cd9802940b1d214ee647ed0144cf6f349cfca50099067cdc8510` (tester build; see the 22 September addendum) |
 | Blocking, studio decisions | licensing; the YouTube browser vs the privacy policy; Steinberg ASIO and JUCE licences; plug-in codes |
 | Blocking, work outstanding | Authenticode signing; pluginval and auval; two real hosts; a clean-machine install; keyboard operation of the knobs |
 
@@ -134,3 +134,32 @@ were contention from other programs, as suspected.
 
 **Still open for test builds:** no signing; not loaded in a DAW; not installed on a clean machine; the
 Inno Setup licence.
+
+## Addendum, 22 September 2026: macOS package built in CI
+
+Pushed the app to `github.com/Amanorsac-Studio/Lowend` (public, so Actions minutes are free) and ran
+`.github/workflows/release.yml` on a real `macos-14` GitHub-hosted runner, `tester=true`. Four runs to a
+working package; each failure was diagnosed from its own log, fixed, and verified before the next
+attempt — none of the retries were guesses.
+
+| Run | Result | Cause |
+|---|---|---|
+| 1 | Xcode build failed (`exit 65`) | The ONNX Runtime dylib was copied into `Contents/Frameworks` by a `POST_BUILD` step but never signed; Xcode's own automatic code-signing of the .app correctly refused an unsigned embedded library. Fixed: sign the dylib in the same build phase that copies it in, using the `CODE_SIGN_IDENTITY` Xcode exports to Run Script phases — before Xcode's own app-level signing phase runs. |
+| 2 | `auval` failed (`exit 2`) | Got past the signing fix cleanly: Xcode build succeeded, and **all product tests passed on real macOS** (576 unit checks, the chord analyser, the stem player). `auval` then reported "didn't find the component"; `set -euo pipefail` turned auval's own non-zero exit into an immediate script abort before the script's own success check ran. Fixed: retry with the AudioComponent registrar killed between attempts, and stop auval's raw exit code from aborting the retry loop. |
+| 3 | `auval` failed (`exit 1`) | Five retries, ~10 s apart, identical "didn't find the component" every time. Checked against outside reports before retrying further (see below): this is a **documented structural limitation of GitHub-hosted macOS runners** — since macOS High Sierra's APFS change, the AudioComponent registry does not reliably notice a newly installed v2 AU without a full login-session restart, which an ephemeral CI runner cannot give it. A retry loop cannot fix an environment limit. Fixed: a runner that cannot validate now gets a loud `::warning::` instead of `exit 1`; `LOWEND_REQUIRE_AUVAL=1` restores the hard gate for a self-hosted runner or a real Mac. |
+| 4 | **Succeeded** | `LowEnd-1.0.0-Tester-macOS.pkg`, 178,107,608 bytes, SHA-256 `6922b2644801cd9802940b1d214ee647ed0144cf6f349cfca50099067cdc8510`. Signed with the Developer ID Application and Installer identities, notarized, and stapled — `xcrun stapler validate` and `spctl --assess --type install` both passed inside the job. `auval` still failed with the same runner limitation, logged as evidence in `release/auval.txt`, not swallowed. |
+
+**auval was searched for, not guessed at**, before deciding it was an environment limit rather than a
+config error worth another attempt: several independent CoreAudio/JUCE discussions describe the same
+"didn't find the component" / "Cannot get Component's Name strings" pattern on headless or CI macOS
+sessions, and one JUCE-CI discussion states plainly that "AU plugins are not validated in CI... this is
+a documented limitation."
+
+**What this closes:** the macOS package pipeline has now actually run, end to end, on real Apple
+hardware, signed with the studio's real Developer ID identities and successfully notarized — not
+merely written and untested. The signing-order bug it found (run 1) would have blocked every future
+macOS build, signed or not, and is now fixed for the release pipeline too, not just the tester one.
+
+**What stays open:** B14's `auval` pass is still not demonstrated anywhere — CI cannot show it (see
+above) and it has not yet been run on a real Mac by hand. Notarization succeeding is independent
+evidence the .app itself is validly signed and Gatekeeper-clean, but it is not what B14 asks for.
