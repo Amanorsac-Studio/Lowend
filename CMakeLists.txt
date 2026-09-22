@@ -122,7 +122,8 @@ endif()
 #    is), and System32 carries an older onnxruntime.dll of its own that a search
 #    by name would find instead.
 #  * macOS: the dylib goes into the bundle's Frameworks folder and is found
-#    through @rpath. scripts/build-mac-pkg.sh signs it before the bundle.
+#    through @rpath. It is signed IN THIS SAME build phase, immediately after
+#    being copied in - see the comment on the codesign line below for why.
 function(lowend_stage_onnxruntime target)
     if(NOT TARGET ${target})
         return()
@@ -140,10 +141,23 @@ function(lowend_stage_onnxruntime target)
         if(_is_bundle OR _is_macos_bundle)
             set_target_properties(${target} PROPERTIES BUILD_RPATH "@loader_path/../Frameworks"
                                                         INSTALL_RPATH "@loader_path/../Frameworks")
+            get_filename_component(_ort_filename "${LOWEND_ORT_RUNTIME}" NAME)
             add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:${target}>/Frameworks"
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                         "${LOWEND_ORT_RUNTIME}" "$<TARGET_BUNDLE_CONTENT_DIR:${target}>/Frameworks/"
+                # Apple rejects an app whose embedded code isn't signed BEFORE the
+                # app itself is - "code object is not signed at all, in
+                # subcomponent: .../libonnxruntime.dylib" is exactly what Xcode's
+                # own automatic CodeSign phase says if this dylib is left as a
+                # bare copy. That phase runs as the LAST step for a signed
+                # target, after this POST_BUILD command, so signing the dylib
+                # right here - in the same phase that copies it in - satisfies
+                # Apple's ordering rule. Xcode exports CODE_SIGN_IDENTITY to
+                # every Run Script phase, so this only fires on a signed (CI or
+                # release) configure; a local unsigned dev build leaves the
+                # dylib as a plain copy, exactly as before.
+                COMMAND sh -c "if [ -n \"$CODE_SIGN_IDENTITY\" ] && [ \"$CODE_SIGNING_ALLOWED\" != \"NO\" ]; then codesign --force --options runtime --timestamp --sign \"$CODE_SIGN_IDENTITY\" \"$<TARGET_BUNDLE_CONTENT_DIR:${target}>/Frameworks/${_ort_filename}\"; fi"
                 VERBATIM)
         else()
             set_target_properties(${target} PROPERTIES BUILD_RPATH "${onnxruntime_SOURCE_DIR}/lib")
