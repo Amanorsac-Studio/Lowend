@@ -98,11 +98,26 @@ fi
 mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"
 rm -rf "$HOME/Library/Audio/Plug-Ins/Components/Low End.component"
 cp -R "$AU" "$HOME/Library/Audio/Plug-Ins/Components/"
-killall -9 AudioComponentRegistrar 2>/dev/null || true
 mkdir -p "$OUT"
-auval -v aufx LwEd Amsc 2>&1 | tee "$OUT/auval.txt" | tail -5
-grep -q "AU VALIDATION SUCCEEDED" "$OUT/auval.txt" || { echo "auval failed"; exit 1; }
+
+# CoreAudio's AudioComponent registry does not always notice a newly installed
+# component right away - especially on a CI runner, which has no audio session
+# already running to have triggered a scan. auval also does not reliably
+# signal failure through its exit code, so success is judged by the string it
+# prints, and a first "didn't find the component" is retried with the
+# registrar killed in between - the standard workaround other JUCE projects'
+# own CI scripts use for exactly this flakiness.
+AUVAL_OK=0
+for attempt in 1 2 3 4 5; do
+  killall -9 AudioComponentRegistrar >/dev/null 2>&1 || true
+  sleep 3
+  auval -v aufx LwEd Amsc > "$OUT/auval.txt" 2>&1 || true
+  if grep -q "AU VALIDATION SUCCEEDED" "$OUT/auval.txt"; then AUVAL_OK=1; break; fi
+  echo "auval attempt $attempt: component not found yet, retrying..."
+done
+tail -8 "$OUT/auval.txt"
 rm -rf "$HOME/Library/Audio/Plug-Ins/Components/Low End.component"
+[ "$AUVAL_OK" = "1" ] || { echo "auval failed after $attempt attempts"; exit 1; }
 
 # ---------------------------------------------------------------- packages
 # One component package per part, then a distribution that offers them as
