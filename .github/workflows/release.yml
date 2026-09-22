@@ -1,0 +1,103 @@
+# Low End - macOS release package: signed, notarised, stapled.
+#
+# Follows the Amanorsac Studio macOS Signing Standard. The certificates and the
+# App Store Connect key are ORGANISATION secrets (visibility: All repositories);
+# nothing secret lives in this repository. The heavy lifting is in
+# scripts/build-mac-pkg.sh so the same steps can be run by hand on a Mac.
+#
+# COST: macOS runners bill at about ten times Linux, so this never runs on an
+# ordinary push - only on a v* tag or when started by hand. This repository is
+# public, so Actions minutes are free regardless (see the signing standard).
+name: Low End release (macOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tester:
+        description: "Build a TEST package (asks for a test key; never sell it)"
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-pkg:
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      LOWEND_TESTER: ${{ inputs.tester && '1' || '0' }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      # The separation model ships INSIDE the package, so the product never
+      # downloads anything. It is fetched here, at build time, and checked
+      # against the exact bytes the Windows installer carries.
+      - name: Fetch the separation model
+        run: |
+          mkdir -p models && cd models
+          base=https://huggingface.co/Intel/demucs-openvino/resolve/main/htdemucs_v4
+          curl -fL --retry 3 -o htdemucs_fwd.onnx      "$base/htdemucs_fwd.onnx"
+          curl -fL --retry 3 -o htdemucs_fwd.onnx.data "$base/htdemucs_fwd.onnx.data"
+          echo "555f511fb653348a1c9495ab6b6091767d1920798f3fba68629a1fe5b135a45f  htdemucs_fwd.onnx"      | shasum -a 256 -c -
+          echo "23a7c68669c041363caaef94641e961dc8c4e16b9891cb87f58f0e199a5e8820  htdemucs_fwd.onnx.data" | shasum -a 256 -c -
+
+      - name: Import the signing certificates
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          MAC_INSTALLER_P12: ${{ secrets.MAC_INSTALLER_P12 }}
+          MAC_INSTALLER_PASSWORD: ${{ secrets.MAC_INSTALLER_PASSWORD }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          # An empty secret means the org secret is not visible to this repository;
+          # say so now rather than shipping an unsigned package by accident.
+          for v in MAC_CERT_P12 MAC_INSTALLER_P12 ASC_KEY_P8 APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID; do
+            [ -n "${!v}" ] || { echo "::error::secret $v is empty - check the organisation secret's repository visibility"; exit 1; }
+          done
+          KEYCHAIN=build.keychain
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security default-keychain -s "$KEYCHAIN"
+
+          echo "$MAC_CERT_P12"      | tr -d '[:space:]' | base64 --decode > app.p12
+          echo "$MAC_INSTALLER_P12" | tr -d '[:space:]' | base64 --decode > installer.p12
+          trim () { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
+          security import app.p12       -k "$KEYCHAIN" -P "$(trim "$MAC_CERT_PASSWORD")"      -T /usr/bin/codesign -T /usr/bin/productsign
+          security import installer.p12 -k "$KEYCHAIN" -P "$(trim "$MAC_INSTALLER_PASSWORD")" -T /usr/bin/codesign -T /usr/bin/productsign
+          rm -f app.p12 installer.p12
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security find-identity -v
+
+          # The key may have been stored as base64 or as the raw .p8 text.
+          if printf '%s' "$ASC_KEY_P8" | grep -q "BEGIN PRIVATE KEY"; then printf '%s' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc.p8"
+          else printf '%s' "$ASC_KEY_P8" | tr -d '[:space:]' | base64 --decode > "$RUNNER_TEMP/asc.p8"; fi
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/asc.p8" >> "$GITHUB_ENV"
+
+      - name: Build, sign, notarise and staple
+        env:
+          LOWEND_MODEL_DIR: ${{ github.workspace }}/models
+        run: bash scripts/build-mac-pkg.sh
+
+      - name: Remove the key material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc.p8"; security delete-keychain build.keychain || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LowEnd-macOS
+          path: |
+            release/*.pkg
+            release/auval.txt
+          if-no-files-found: error

@@ -1,0 +1,36 @@
+LOW END - LICENCE
+
+Low End is published by Amanorsac Studio and is covered by the Amanorsac
+Studio End User Licence Agreement and Terms of Service. The agreement is
+published in full, and kept up to date, at:
+
+    https://amanorsac.studio/legal
+
+By installing Low End you agree to that agreement. If you do not agree,
+choose "I do not accept" and the installer will close without changing
+anything on this computer.
+
+
+NO ACTIVATION
+
+Low End needs no licence key and no account. Nothing is asked of you after
+it is installed.
+
+
+PRIVACY
+
+The Amanorsac Studio privacy policy is published at:
+
+    https://amanorsac.studio/privacy
+
+Low End does not collect anything. Your audio, your songs and your presets
+stay on this computer. There is no analytics and no usage reporting of any
+kind. The only part of Low End that uses the internet is the YouTube browser
+in the Learn tab, and only when you choose to open it.
+
+
+THIRD-PARTY SOFTWARE
+
+Low End includes software from other authors. Their notices are installed
+alongside the product in THIRD_PARTY_NOTICES.txt, and can be read inside the
+product under Settings > About.

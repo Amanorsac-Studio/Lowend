@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Low End - macOS distribution. The five pages of the Installer & Packaging
+     Standard §5 map onto Installer.app's own: Welcome, Licence (+ Read Me),
+     Customise (the choices below: P12, each naming its full path: P11),
+     Installing, and the Conclusion, which lists what went where (P15).
+
+     Two things the standard asks for that a .pkg cannot do, recorded here
+     rather than faked: the plug-in folders are fixed (that is P11, and correct),
+     and there is no "second copy" field (P14) because Installer.app has no
+     free-text page. Recorded as an exception in DECISIONS-lowend.md. -->
+<installer-gui-script minSpecVersion="2">
+    <title>Low End @VERSION@</title>
+    <organization>com.amanorsac</organization>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <options customize="always" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <volume-check><allowed-os-versions><os-version min="11.0"/></allowed-os-versions></volume-check>
+
+    <background file="background.png" alignment="bottomleft" scaling="none" mime-type="image/png"/>
+    <background-darkAqua file="background.png" alignment="bottomleft" scaling="none" mime-type="image/png"/>
+    <welcome file="welcome.html" mime-type="text/html"/>
+    <license file="licence.txt" mime-type="text/plain"/>
+    <readme file="readme.txt" mime-type="text/plain"/>
+    <conclusion file="conclusion.html" mime-type="text/html"/>
+
+    <choices-outline>
+        <line choice="app"/>
+        <line choice="vst3"/>
+        <line choice="au"/>
+        <line choice="model"/>
+        <line choice="docs"/>
+    </choices-outline>
+
+    <choice id="app" title="Standalone application" start_selected="true"
+            description="Low End as its own application, for the stage.&#10;&#10;/Applications/Low End.app">
+        <pkg-ref id="com.amanorsac.lowend.app"/>
+    </choice>
+    <choice id="vst3" title="VST3 plug-in" start_selected="true"
+            description="For any DAW that loads VST3.&#10;&#10;/Library/Audio/Plug-Ins/VST3/Low End.vst3">
+        <pkg-ref id="com.amanorsac.lowend.vst3"/>
+    </choice>
+    <choice id="au" title="Audio Unit" start_selected="true"
+            description="For Logic Pro, GarageBand and MainStage.&#10;&#10;/Library/Audio/Plug-Ins/Components/Low End.component">
+        <pkg-ref id="com.amanorsac.lowend.au"/>
+    </choice>
+    <choice id="model" title="Stem separation (about 170 MB)" start_selected="true"
+            description="Lets the Learn tab split a song into drums, bass, vocals and the rest, on this Mac, with no internet connection.&#10;&#10;/Library/Application Support/Amanorsac Studio/Low End/Models">
+        <pkg-ref id="com.amanorsac.lowend.model"/>
+    </choice>
+    <choice id="docs" title="Read Me and uninstaller" start_selected="true" enabled="false"
+            description="The Read Me, the third-party notices and Uninstall Low End.command.&#10;&#10;/Library/Application Support/Amanorsac Studio/Low End">
+        <pkg-ref id="com.amanorsac.lowend.docs"/>
+    </choice>
+
+    <pkg-ref id="com.amanorsac.lowend.app"   version="@VERSION@">app.pkg</pkg-ref>
+    <pkg-ref id="com.amanorsac.lowend.vst3"  version="@VERSION@">vst3.pkg</pkg-ref>
+    <pkg-ref id="com.amanorsac.lowend.au"    version="@VERSION@">au.pkg</pkg-ref>
+    <pkg-ref id="com.amanorsac.lowend.model" version="@VERSION@">model.pkg</pkg-ref>
+    <pkg-ref id="com.amanorsac.lowend.docs"  version="@VERSION@">docs.pkg</pkg-ref>
+</installer-gui-script>
