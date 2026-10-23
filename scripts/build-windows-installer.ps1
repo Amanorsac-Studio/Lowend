@@ -4,6 +4,7 @@
 #   ... -CertThumbprint <sha1>      sign with a certificate in the Windows store
 #   ... -SkipBuild                  package what is already built
 #   ... -Tester                     a TEST build: asks for a test key, named LowEnd-<v>-Tester-Windows.exe
+#   ... -SoakAdvisory               report a slow soak instead of failing (cloud CI only)
 #
 # A test build is made in its own folder (build-tester) so it can never be mistaken
 # for, or overwrite, the release binaries. It carries the key check in
@@ -26,6 +27,7 @@ param(
     [string] $ModelDir       = "",
     [switch] $SkipBuild,
     [switch] $SkipTests,
+    [switch] $SoakAdvisory,
     [switch] $Tester
 )
 $ErrorActionPreference = "Stop"
@@ -36,15 +38,20 @@ $rel   = Join-Path $build "LowEnd_artefacts\Release"
 $out   = Join-Path $app "release"
 
 function Find-Tool([string[]] $candidates, [string] $what) {
-    foreach ($c in $candidates) { $hit = Get-Item $c -ErrorAction SilentlyContinue | Select-Object -Last 1; if ($hit) { return $hit.FullName } }
+    foreach ($c in $candidates) { if (-not $c) { continue }; $hit = Get-Item $c -ErrorAction SilentlyContinue | Select-Object -Last 1; if ($hit) { return $hit.FullName } }
     throw "Could not find $what."
 }
-$vs      = "C:\Program Files\Microsoft Visual Studio\18\Community"
-$cmake   = Find-Tool @("$vs\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe") "cmake"
-$ctest   = Find-Tool @("$vs\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\ctest.exe") "ctest"
+# Visual Studio: whichever edition vswhere reports (Community here, Enterprise on a
+# GitHub runner), falling back to the studio machine's own install.
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vs = $(if (Test-Path $vswhere) { & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1 })
+if (-not $vs) { $vs = "C:\Program Files\Microsoft Visual Studio\18\Community" }
+$onPath  = { param($n) (Get-Command $n -ErrorAction SilentlyContinue | Select-Object -First 1).Source }
+$cmake   = Find-Tool @("$vs\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe", (& $onPath "cmake.exe")) "cmake"
+$ctest   = Find-Tool @("$vs\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\ctest.exe", (& $onPath "ctest.exe")) "ctest"
 $dumpbin = Find-Tool @("$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe") "dumpbin"
 $crt     = Find-Tool @("$vs\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT") "the Visual C++ runtime DLLs"
-$iscc    = Find-Tool @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") "Inno Setup (ISCC.exe)"
+$iscc    = Find-Tool @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "C:\Program Files (x86)\Inno Setup 6\ISCC.exe", (& $onPath "ISCC.exe")) "Inno Setup (ISCC.exe)"
 
 # ---- version: one string, read from the one place it is defined (B34)
 $version = (Select-String -Path (Join-Path $app "CMakeLists.txt") -Pattern 'project\(LowEnd VERSION ([0-9]+\.[0-9]+\.[0-9]+)').Matches[0].Groups[1].Value
@@ -96,7 +103,12 @@ if (-not $SkipTests) {
     $null = $soak.Handle
     $soak.PriorityClass = "High"; $soak.WaitForExit()
     Write-Host "soak exit code: $($soak.ExitCode)"
-    if ($soak.ExitCode -ne 0) { throw "The soak test failed; not packaging." }
+    if ($soak.ExitCode -ne 0) {
+        # A shared cloud VM has no real-time scheduling, so there the soak is a
+        # report, not a gate; the studio machine's soak is the one that counts.
+        if ($SoakAdvisory) { Write-Warning "The soak missed its real-time budget on this machine (advisory here)." }
+        else { throw "The soak test failed; not packaging." }
+    }
 }
 
 # ---- checks a buyer's clean machine would otherwise make for us

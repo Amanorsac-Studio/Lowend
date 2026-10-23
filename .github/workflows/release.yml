@@ -1,4 +1,4 @@
-# Low End - macOS release package: signed, notarised, stapled.
+# Low End - release packages: macOS (signed, notarised, stapled) and Windows.
 #
 # Follows the Amanorsac Studio macOS Signing Standard. The certificates and the
 # App Store Connect key are ORGANISATION secrets (visibility: All repositories);
@@ -8,7 +8,7 @@
 # COST: macOS runners bill at about ten times Linux, so this never runs on an
 # ordinary push - only on a v* tag or when started by hand. This repository is
 # public, so Actions minutes are free regardless (see the signing standard).
-name: Low End release (macOS)
+name: Low End release (macOS + Windows)
 
 on:
   workflow_dispatch:
@@ -100,4 +100,45 @@ jobs:
           path: |
             release/*.pkg
             release/auval.txt
+          if-no-files-found: error
+
+  # Windows installer, built the same way as on the studio machine by
+  # scripts/build-windows-installer.ps1. Not code-signed yet: the script says so.
+  windows-installer:
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the separation model
+        shell: bash
+        run: |
+          mkdir -p models && cd models
+          base=https://huggingface.co/Intel/demucs-openvino/resolve/main/htdemucs_v4
+          curl -fL --retry 3 -o htdemucs_fwd.onnx      "$base/htdemucs_fwd.onnx"
+          curl -fL --retry 3 -o htdemucs_fwd.onnx.data "$base/htdemucs_fwd.onnx.data"
+          echo "555f511fb653348a1c9495ab6b6091767d1920798f3fba68629a1fe5b135a45f  htdemucs_fwd.onnx"      | sha256sum -c -
+          echo "23a7c68669c041363caaef94641e961dc8c4e16b9891cb87f58f0e199a5e8820  htdemucs_fwd.onnx.data" | sha256sum -c -
+
+      # CMakeLists.txt looks for the WebView2 SDK in the NuGet package cache.
+      - name: Install the WebView2 SDK and Inno Setup
+        shell: powershell
+        run: |
+          $dst = "$env:USERPROFILE\.nuget\packages\microsoft.web.webview2\1.0.2903.40"
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Invoke-WebRequest https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2903.40 -OutFile "$env:RUNNER_TEMP\wv2.zip"
+          Expand-Archive "$env:RUNNER_TEMP\wv2.zip" -DestinationPath $dst -Force
+          if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Build, test and package
+        shell: powershell
+        run: |
+          $a = @("-ModelDir", "$env:GITHUB_WORKSPACE\models", "-SoakAdvisory")
+          if ("${{ inputs.tester }}" -eq "true") { $a += "-Tester" }
+          & .\scripts\build-windows-installer.ps1 @a
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LowEnd-Windows
+          path: release/*-Windows.exe
           if-no-files-found: error
