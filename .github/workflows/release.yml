@@ -133,8 +133,9 @@ jobs:
       - name: Build, test and package
         shell: powershell
         run: |
-          $a = @("-ModelDir", "$env:GITHUB_WORKSPACE\models", "-SoakAdvisory")
-          if ("${{ inputs.tester }}" -eq "true") { $a += "-Tester" }
+          # Named splatting needs a hashtable; an array passes "-ModelDir" as a value.
+          $a = @{ ModelDir = "$env:GITHUB_WORKSPACE\models"; SoakAdvisory = $true }
+          if ("${{ inputs.tester }}" -eq "true") { $a.Tester = $true }
           & .\scripts\build-windows-installer.ps1 @a
 
       - uses: actions/upload-artifact@v4
