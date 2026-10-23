@@ -187,8 +187,9 @@ int main (int argc, char** argv)
             juce::MessageManager::getInstance()->runDispatchLoopUntil (2);
         }
         if (block % 900 == 0 && block > 0)
-            std::printf ("  %5.1f s   peak %.3f   worst block %.3f ms\n",
-                         block * kBlock / kSr, worstPeak, worstBlockMs);
+            std::printf ("  %5.1f s   peak %.3f   worst block %.3f ms   board %d pedals\n",
+                         block * kBlock / kSr, worstPeak, worstBlockMs,
+                         (int) (proc.rig().pre.size() + proc.rig().post.size()));
     }
 
     proc.panic();

@@ -958,8 +958,15 @@ public:
             const bool latent = s.dly.delaySamples() > 0;
             if (silent && ! isTimeBlock (s.block->type()))
             {
-                // Keep the alignment line fed, so switching on never fades in stale audio.
-                if (latent) for (int i = 0; i < n; ++i) s.dly.push (buffer.getSample (0, i), buffer.getSample (nCh > 1 ? 1 : 0, i));
+                // Keep the alignment line fed, so switching on never fades in
+                // stale audio. It only ever reads back `delay` samples, so the
+                // end of the block is all it needs: a few samples, not the block.
+                if (latent)
+                {
+                    const auto* l0 = buffer.getReadPointer (0);
+                    const auto* r0 = buffer.getReadPointer (nCh > 1 ? 1 : 0);
+                    for (int i = juce::jmax (0, n - s.dly.delaySamples() - 1); i < n; ++i) s.dly.push (l0[i], r0[i]);
+                }
                 continue;
             }
             for (int ch = 0; ch < nCh; ++ch) dry_.copyFrom (ch, 0, buffer, ch, 0, n);
@@ -967,10 +974,13 @@ public:
             {
                 // The crossfade's clean side waits for the block's own latency, so
                 // switching a pedal on or off is a fade, not a brief comb filter.
+                auto* dl = dry_.getWritePointer (0);
+                auto* dr = dry_.getWritePointer (nCh > 1 ? 1 : 0);
                 for (int i = 0; i < n; ++i)
                 {
-                    s.dly.push (dry_.getSample (0, i), dry_.getSample (nCh > 1 ? 1 : 0, i));
-                    for (int ch = 0; ch < nCh; ++ch) dry_.setSample (ch, i, s.dly.read (ch));
+                    s.dly.push (dl[i], dr[i]);
+                    dl[i] = s.dly.read (0);
+                    if (nCh > 1) dr[i] = s.dly.read (1);
                 }
             }
             s.block->process (buffer, bpm);
