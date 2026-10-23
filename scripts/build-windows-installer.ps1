@@ -1,4 +1,4 @@
-# build-windows-installer.ps1 - builds LowEnd-<version>-Windows.exe.
+﻿# build-windows-installer.ps1 - builds LowEnd-<version>-Windows.exe.
 #
 #   powershell -ExecutionPolicy Bypass -File apps\lowend\scripts\build-windows-installer.ps1
 #   ... -CertThumbprint <sha1>      sign with a certificate in the Windows store
@@ -91,7 +91,11 @@ if (-not $SkipTests) {
     # contention alone (measured: 16-31 ms worst blocks at normal priority,
     # 3 ms at High, same binary, same minute).
     $soak = Start-Process -FilePath (Join-Path $build "LowEndSoak_artefacts\Release\LowEndSoak.exe") -ArgumentList "--seconds","30" -NoNewWindow -PassThru
+    # PowerShell only keeps ExitCode if the process handle was read before the
+    # process exits; without this a passing soak reads as $null and fails here.
+    $null = $soak.Handle
     $soak.PriorityClass = "High"; $soak.WaitForExit()
+    Write-Host "soak exit code: $($soak.ExitCode)"
     if ($soak.ExitCode -ne 0) { throw "The soak test failed; not packaging." }
 }
 
