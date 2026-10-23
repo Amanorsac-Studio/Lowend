@@ -29,6 +29,12 @@ public:
     void focusWebView();
 
 
+    /// Standalone: the window was asked to close with edits unsaved. The page
+    /// shows the Unsaved changes sheet; it calls "quit" when answered.
+    void askToClose() { emit ("confirmClose", juce::var()); }
+    /// Standalone: an interface was plugged in or out, or the device restarted.
+    void audioDevicesChanged() { emit ("audioDevices", juce::var()); }
+
 private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void timerCallback() override;
@@ -53,6 +59,7 @@ private:
     /// finished stems are served back as WAV files from provideResource. All of
     /// it is forwarded to the processor's StemSeparator, which owns the work.
     juce::var stemCommand (const juce::var& args);
+    juce::var coverCommand (const juce::var& args);
 
     LowEndProcessor& proc_;
     std::unique_ptr<juce::WebBrowserComponent> web_;

@@ -13,6 +13,7 @@
 #include "engine/AmpDsp.h"
 #include "engine/BassSynth.h"
 #include "engine/Looper.h"
+#include "engine/Metronome.h"
 #include "engine/PedalDsp.h"
 #include "engine/PitchTrack.h"
 #include "engine/RigModel.h"
@@ -370,6 +371,7 @@ void testLooper()
     Looper lp;
     lp.prepare (kSr, kBlock);
     ParamValues v = defaultsFor (looperParams());
+    v["autoStart"] = 0;     // these takes start on the stomp, not on a note
     v["quantize"] = 0;      // free, so the length is exactly what was recorded
     v["fadeMs"] = 1;
     lp.setParams (v);
@@ -442,9 +444,11 @@ void testLooper()
         Looper q;
         q.prepare (kSr, kBlock);
         auto qv = defaultsFor (looperParams());
+        qv["autoStart"] = 0;
         qv["quantize"] = 1;
         q.setParams (qv);
         q.setTempo (120.0);
+        q.setGridActive (true);      // the click is running, so the bar is real
         juce::AudioBuffer<float> b (2, kBlock);
         b.clear();
         q.recordPressed();
@@ -452,6 +456,193 @@ void testLooper()
         q.recordPressed();
         for (int i = 0; i < (int) (kSr * 1.2) / kBlock; ++i) q.process (b);
         checkClose (q.lengthSeconds(), 2.0, 0.05, "a 1.2 s take is closed on the bar line");
+    }
+}
+
+/// The ways a loop "does not loop well" on stage, each pinned by a test.
+void testLooperSeams()
+{
+    section ("Looper seams and timing");
+    auto fill = [] (juce::AudioBuffer<float>& b, float v)
+    {
+        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+            for (int s = 0; s < b.getNumSamples(); ++s) b.setSample (ch, s, v);
+    };
+
+    // 1. Bar quantise with NO audible tempo. The default is Bar, and the tempo
+    //    is whatever the app last had (120 here) — a tempo the player cannot
+    //    hear. Snapping to it chopped or padded every free loop. With no click
+    //    and no host tempo the loop must be exactly what was played.
+    {
+        Looper lp;
+        lp.prepare (kSr, kBlock);
+        { auto v = defaultsFor (looperParams()); v["autoStart"] = 0; lp.setParams (v); }      // quantise = Bar
+        lp.setTempo (120.0);
+        juce::AudioBuffer<float> b (2, kBlock);
+        fill (b, 0.25f);
+        lp.recordPressed();
+        const int blocks = (int) (kSr * 1.3) / kBlock;    // a 1.3 s phrase
+        for (int i = 0; i < blocks; ++i) lp.process (b);
+        lp.recordPressed();
+        for (int i = 0; i < 4; ++i) lp.process (b);
+        check (lp.lengthSamples() == blocks * kBlock,
+               "with no audible tempo a loop is exactly as long as it was played ("
+                   + juce::String (lp.lengthSamples()) + " vs " + juce::String (blocks * kBlock) + ")");
+    }
+
+    // 2. The seam. A held note across the loop point must not dip: the old
+    //    seam fade pulled the level to zero at every wrap, which on a bass is a
+    //    thump once per loop. Record a steady level, keep playing it through
+    //    the stomp (as a player does), then listen to the wrap with no input.
+    {
+        Looper lp;
+        lp.prepare (kSr, kBlock);
+        auto v = defaultsFor (looperParams());
+        v["autoStart"] = 0;
+        v["quantize"] = 0;
+        v["fadeMs"] = 10;
+        lp.setParams (v);
+        juce::AudioBuffer<float> b (2, kBlock);
+        fill (b, 0.25f);
+        lp.recordPressed();
+        for (int i = 0; i < 40; ++i) lp.process (b);
+        lp.recordPressed();
+        for (int i = 0; i < 8; ++i) lp.process (b);        // the note rings on past the stomp
+        // Now silence in; walk two whole passes so the wrap is crossed twice.
+        float lo = 1.0f;
+        const int walk = 2 * lp.lengthSamples() / kBlock + 2;
+        for (int i = 0; i < walk; ++i)
+        {
+            fill (b, 0.0f);
+            lp.process (b);
+            for (int s = 0; s < kBlock; ++s) lo = juce::jmin (lo, b.getSample (0, s));
+        }
+        check (lo > 0.22f, "a held note does not dip at the loop point (lowest " + juce::String (lo, 3) + ")");
+    }
+
+    // 3. Footswitch timing. A stomp arrives with its sample position inside the
+    //    block; applying it at the top of the NEXT block made every loop up to
+    //    a buffer too long or short, and the error changed from loop to loop.
+    {
+        Looper lp;
+        lp.prepare (kSr, kBlock);
+        auto v = defaultsFor (looperParams());
+        v["autoStart"] = 0;
+        v["quantize"] = 0;
+        lp.setParams (v);
+        juce::AudioBuffer<float> b (2, kBlock);
+        fill (b, 0.25f);
+        lp.recordPressed (37);                             // 37 samples into this block
+        lp.process (b);
+        for (int i = 0; i < 9; ++i) lp.process (b);
+        lp.recordPressed (200);                            // 200 samples into the 11th block
+        lp.process (b);
+        check (lp.lengthSamples() == 10 * kBlock + 200 - 37,
+               "a stomp lands on its own sample (" + juce::String (lp.lengthSamples()) + ")");
+    }
+
+    // 4. Half speed overdub. Reading at half speed visits every sample twice,
+    //    and the overdub used to write on both visits: double level, and an undo
+    //    that saved already-overdubbed audio.
+    {
+        Looper lp;
+        lp.prepare (kSr, kBlock);
+        auto v = defaultsFor (looperParams());
+        v["autoStart"] = 0;
+        v["quantize"] = 0;
+        v["speed"] = 1;
+        lp.setParams (v);
+        juce::AudioBuffer<float> b (2, kBlock);
+        fill (b, 0.25f);
+        lp.recordPressed();
+        for (int i = 0; i < 20; ++i) lp.process (b);
+        lp.recordPressed();                                // close -> playing (at half speed)
+        lp.process (b);
+        lp.recordPressed();                                // overdub one full half-speed pass
+        for (int i = 0; i < 2 * 20; ++i) { fill (b, 0.25f); lp.process (b); }
+        lp.recordPressed();                                // back to playing
+        float hi = 0.0f;
+        for (int i = 0; i < 2 * 20 + 4; ++i)
+        {
+            fill (b, 0.0f);
+            lp.process (b);
+            for (int s = 0; s < kBlock; ++s) hi = juce::jmax (hi, b.getSample (0, s));
+        }
+        check (hi < 0.55f, "a half-speed overdub adds once, not twice (peak " + juce::String (hi, 3) + ")");
+    }
+}
+
+void testMetronome()
+{
+    section ("Metronome");
+    // Onsets: the first sample of each click (the voice is exactly silent
+    // between clicks, so "was zero, now is not" is an onset).
+    auto onsets = [] (Metronome& m, int blocks, double bpm)
+    {
+        std::vector<long long> at;
+        std::vector<float> l ((size_t) kBlock), r ((size_t) kBlock);
+        float prev = 0.0f;
+        for (int b = 0; b < blocks; ++b)
+        {
+            m.render (l.data(), r.data(), kBlock, bpm);
+            for (int s = 0; s < kBlock; ++s)
+            {
+                if (prev == 0.0f && l[(size_t) s] != 0.0f) at.push_back ((long long) b * kBlock + s);
+                prev = l[(size_t) s];
+            }
+        }
+        return at;
+    };
+
+    {
+        Metronome m;
+        m.prepare (kSr);
+        ClickSettings cs; cs.on = true;
+        m.setSettings (cs);
+        const auto at = onsets (m, (int) (kSr * 2.1) / kBlock, 120.0);
+        check (at.size() == 5, "120 bpm gives a click every half second (" + juce::String ((int) at.size()) + " in 2.1 s)");
+        bool exact = ! at.empty() && at[0] == 0;
+        for (size_t i = 1; i < at.size(); ++i) exact = exact && at[i] - at[i - 1] == 24000;
+        check (exact, "the clicks are sample-exact at any buffer size");
+    }
+    {
+        // The one is accented.
+        Metronome m;
+        m.prepare (kSr);
+        ClickSettings cs; cs.on = true;
+        m.setSettings (cs);
+        std::vector<float> l ((size_t) 24000), r ((size_t) 24000);
+        m.render (l.data(), r.data(), 24000, 120.0);
+        const float one = juce::FloatVectorOperations::findMaximum (l.data(), 24000);
+        m.render (l.data(), r.data(), 24000, 120.0);
+        const float two = juce::FloatVectorOperations::findMaximum (l.data(), 24000);
+        check (one > two * 1.2f, "beat one is louder than beat two");
+    }
+    {
+        // Count-in with the click OFF: four clicks, then silence, and the
+        // looper is told to start on the downbeat after them, to the sample.
+        Metronome m;
+        m.prepare (kSr);
+        m.setSettings (ClickSettings {});
+        std::vector<float> l ((size_t) kBlock), r ((size_t) kBlock);
+        m.beginCountIn (1, 37, 120.0);
+        long long due = -1;
+        int clicks = 0;
+        float prev = 0.0f;
+        for (int b = 0; b < (int) (kSr * 3.0) / kBlock; ++b)
+        {
+            const int d = m.countInDue (kBlock);
+            if (d >= 0 && due < 0) due = (long long) b * kBlock + d;
+            m.render (l.data(), r.data(), kBlock, 120.0);
+            for (int s = 0; s < kBlock; ++s)
+            {
+                if (prev == 0.0f && l[(size_t) s] != 0.0f) ++clicks;
+                prev = l[(size_t) s];
+            }
+        }
+        check (clicks == 4, "a one-bar count-in plays four clicks and stops (" + juce::String (clicks) + ")");
+        check (due == 37 + 4 * 24000, "recording starts exactly on the next downbeat (" + juce::String (due) + ")");
+        check (! m.countingIn(), "the count-in ends");
     }
 }
 
@@ -855,6 +1046,203 @@ void testTesterGate()
 } // namespace
 
 //==============================================================================
+/// The looper against the click: a late stomp, an early stomp, the take that
+/// starts on the first note, a pickup, and STOP during a take.
+void testLooperTiming()
+{
+    section ("Looper timing");
+    const double bar = kSr * 2.0;            // 120 BPM, 4/4
+    const int blk = 48;
+    auto make = [] (Looper& lp, bool autoStart)
+    {
+        lp.prepare (kSr, 48);
+        ParamValues v = defaultsFor (looperParams());
+        v["quantize"] = 1; v["fadeMs"] = 1; v["autoStart"] = autoStart ? 1.0f : 0.0f;
+        lp.setParams (v);
+        lp.setTempo (120.0);
+        lp.setGridActive (true);
+    };
+    auto feed = [blk] (Looper& lp, double samples, float value)
+    {
+        juce::AudioBuffer<float> b (2, blk);
+        for (int done = 0; done < (int) samples; done += blk)
+        {
+            for (int ch = 0; ch < 2; ++ch) for (int s = 0; s < blk; ++s) b.setSample (ch, s, value);
+            lp.process (b);
+        }
+    };
+    auto hear = [blk] (Looper& lp)
+    {
+        juce::AudioBuffer<float> b (2, blk);
+        b.clear();
+        lp.process (b);
+        return std::abs (b.getSample (0, blk - 1));
+    };
+    const double tol = 2.0 * blk;
+
+    {   // stomped a beat after bar 4: four bars, and the loop stays in phase
+        Looper lp; make (lp, false);
+        lp.recordPressed(); feed (lp, 4.25 * bar, 0.3f);
+        lp.recordPressed(); feed (lp, blk, 0.3f);
+        check (lp.state() == Looper::State::playing, "a late stomp closes the loop at once");
+        check (std::abs (lp.lengthSamples() - 4.0 * bar) <= tol, "the loop is four bars (rounded down)");
+        check (std::abs (lp.position() * lp.lengthSamples() - (0.25 * bar + blk)) <= tol,
+               "playback resumes a beat in, so the loop's 1 stays on the click's 1");
+    }
+    {   // stomped just before bar 4: waits for the bar line, then plays from the top
+        Looper lp; make (lp, false);
+        lp.recordPressed(); feed (lp, 3.9 * bar, 0.3f);
+        lp.recordPressed(); feed (lp, blk, 0.3f);
+        check (lp.state() == Looper::State::waitingForBar, "an early stomp waits for the bar line");
+        feed (lp, 0.1 * bar + blk, 0.3f);
+        check (lp.state() == Looper::State::playing, "and plays once the bar is reached");
+        check (std::abs (lp.lengthSamples() - 4.0 * bar) <= tol, "four bars");
+        check (lp.position() * lp.lengthSamples() <= tol + blk, "from the top of the loop");
+    }
+    {   // auto-start: the player comes in a little after the downbeat
+        Looper lp; make (lp, true);
+        lp.recordPressed(); feed (lp, blk, 0.0f);
+        check (lp.state() == Looper::State::armed, "REC arms the looper until the first note");
+        feed (lp, 0.3 * bar, 0.0f);
+        feed (lp, 3.95 * bar, 0.3f);
+        check (lp.state() == Looper::State::recording, "the first note starts the take");
+        lp.recordPressed(); feed (lp, blk, 0.3f);
+        check (std::abs (lp.lengthSamples() - 4.0 * bar) <= tol, "the take began on the downbeat before the note: four bars");
+    }
+    {   // auto-start: a whole bar of nothing, then a note in bar 2
+        Looper lp; make (lp, true);
+        lp.recordPressed();
+        feed (lp, 1.2 * bar, 0.0f);
+        feed (lp, 3.05 * bar, 0.3f);
+        lp.recordPressed(); feed (lp, blk, 0.3f);
+        check (std::abs (lp.lengthSamples() - 3.0 * bar) <= tol, "the take began on bar 2's downbeat: three bars, the silent bar dropped");
+        // the loop's own first fifth of a bar is the silence before the note
+        feed (lp, 2.75 * bar - 2 * blk, 0.0f);
+        float early = 0.0f, later = 0.0f;
+        for (int i = 0; i < (int) (0.1 * bar / blk); ++i) early = hear (lp);
+        for (int i = 0; i < (int) (0.3 * bar / blk); ++i) later = hear (lp);
+        check (early < 0.05f && later > 0.2f, "the loop starts with that bar's silence, then the note");
+    }
+    {   // a pickup just before bar 2 belongs to bar 2
+        Looper lp; make (lp, true);
+        lp.recordPressed();
+        feed (lp, 0.97 * bar, 0.0f);
+        feed (lp, 3.28 * bar, 0.3f);
+        lp.recordPressed(); feed (lp, blk, 0.3f);
+        check (std::abs (lp.lengthSamples() - 3.0 * bar) <= tol, "a pickup before the bar line starts the take at the bar line");
+    }
+    {   // STOP during the take closes it on the bar, then stops
+        Looper lp; make (lp, false);
+        lp.recordPressed(); feed (lp, 4.3 * bar, 0.3f);
+        lp.stopPressed(); feed (lp, blk, 0.3f);
+        check (lp.state() == Looper::State::stopped && std::abs (lp.lengthSamples() - 4.0 * bar) <= tol,
+               "STOP after the bar line keeps four bars and stops");
+        Looper lq; make (lq, false);
+        lq.recordPressed(); feed (lq, 3.9 * bar, 0.3f);
+        lq.stopPressed(); feed (lq, 0.1 * bar + blk, 0.3f);
+        check (lq.state() == Looper::State::stopped && std::abs (lq.lengthSamples() - 4.0 * bar) <= tol,
+               "STOP before the bar line finishes the bar, then stops");
+        lq.recordPressed(); feed (lq, blk, 0.0f);
+        check (lq.state() == Looper::State::playing, "REC on a stopped loop plays it");
+    }
+}
+
+/// The looper on the click's grid: the click's bar decides where a take
+/// starts and where PLAY after STOP comes back in. Fixed loop lengths and the
+/// time signature (6/8 counts eighths) are checked against the metronome.
+void testLooperOnClick()
+{
+    section ("Looper on the click");
+    const int blk = 48;
+    const double bpm = 120.0;
+
+    // A metronome and a looper driven the way the processor drives them.
+    struct Rig2
+    {
+        Metronome m; Looper lp;
+        juce::AudioBuffer<float> b { 2, 48 };
+        std::vector<float> l = std::vector<float> (48), r = std::vector<float> (48);
+        void prep (bool autoStart, int beats = 4, int unit = 4)
+        {
+            m.prepare (kSr); lp.prepare (kSr, 48);
+            ClickSettings cs; cs.on = true; cs.beatsPerBar = beats; cs.beatUnit = unit; m.setSettings (cs);
+            ParamValues v = defaultsFor (looperParams());
+            v["quantize"] = 1; v["fadeMs"] = 1; v["autoStart"] = autoStart ? 1.0f : 0.0f;
+            lp.setParams (v); lp.setTempo (120.0); lp.setGridActive (true);
+        }
+        void run (double samples, float value)
+        {
+            for (int done = 0; done < (int) samples; done += 48)
+            {
+                lp.setClickGrid (m.barPhase (120.0), m.barSamples (120.0), m.pulseSamples (120.0));
+                for (int ch = 0; ch < 2; ++ch) for (int s = 0; s < 48; ++s) b.setSample (ch, s, value);
+                lp.process (b);
+                m.render (l.data(), r.data(), 48, 120.0);
+            }
+        }
+    };
+    const double bar = kSr * 2.0;
+    const double tol = 2.0 * blk;
+
+    {   // REC pressed in the middle of bar 1: the take starts on bar 2
+        Rig2 x; x.prep (false);
+        x.run (0.5 * bar, 0.3f);
+        x.lp.recordPressed();
+        x.run (blk, 0.3f);
+        check (x.lp.state() == Looper::State::armed, "REC mid-bar waits for the click's next bar");
+        x.run (0.5 * bar, 0.3f);
+        check (x.lp.state() == Looper::State::recording, "and records from that bar");
+    }
+    {   // a fixed length of 4 bars closes the loop by itself, exactly
+        Rig2 x; x.prep (false);
+        x.lp.setFixedBars (4);
+        x.lp.recordPressed();
+        x.run (4.5 * bar, 0.3f);
+        check (x.lp.state() == Looper::State::playing, "a 4-bar loop closes itself and plays");
+        check (std::abs (x.lp.lengthSamples() - 4.0 * bar) <= 1.0, "and is exactly four bars (" + juce::String (x.lp.lengthSamples()) + ")");
+    }
+    {   // PLAY after STOP comes back in on the click's "1", from the top
+        Rig2 x; x.prep (false);
+        x.lp.setFixedBars (2);
+        x.lp.recordPressed();
+        x.run (2.2 * bar, 0.3f);
+        x.lp.stopPressed(); x.run (blk, 0.0f);
+        x.run (0.4 * bar, 0.0f);                      // a pause that ends mid-bar
+        x.lp.recordPressed(); x.run (blk, 0.0f);
+        check (x.lp.state() == Looper::State::cued, "PLAY mid-bar waits for the click's next 1");
+        double waited = 0.0;
+        while (x.lp.state() == Looper::State::cued && waited < 2.0 * bar) { x.run (blk, 0.0f); waited += blk; }
+        const double phase = x.m.barPhase (120.0);
+        check (x.lp.state() == Looper::State::playing && (phase < tol || phase > bar - tol),
+               "and starts exactly on it (click " + juce::String (phase, 0) + " samples into its bar)");
+        check (x.lp.positionSamples() <= tol, "from the top of the loop");
+    }
+    {   // 6/8: a bar is six eighths, three quarter notes long; 4/4 is four
+        Metronome m; m.prepare (kSr);
+        ClickSettings cs; cs.on = true; cs.beatsPerBar = 6; cs.beatUnit = 8; m.setSettings (cs);
+        checkClose (m.barSamples (bpm) / kSr, 1.5, 1.0e-6, "6/8 at 120 is 1.5 s a bar");
+        cs.beatsPerBar = 4; cs.beatUnit = 4; m.setSettings (cs);
+        checkClose (m.barSamples (bpm) / kSr, 2.0, 1.0e-6, "4/4 at 120 is 2 s a bar");
+    }
+    {   // the "1" is pitched an octave above the other beats
+        Metronome m; m.prepare (kSr);
+        ClickSettings cs; cs.on = true; cs.beatsPerBar = 4; m.setSettings (cs);
+        auto pitchOf = [&m] (int beatsToSkip)
+        {
+            std::vector<float> l (48), r (48), all;
+            for (int k = 0; k < (int) (kSr * 2.0 / 48) + 4; ++k) { m.render (l.data(), r.data(), 48, 120.0); all.insert (all.end(), l.begin(), l.end()); }
+            const size_t at = (size_t) (beatsToSkip * kSr * 0.5) + 200;
+            int crossings = 0;
+            for (size_t i = at; i < at + 480; ++i) if ((all[i - 1] < 0.0f) != (all[i] < 0.0f)) ++crossings;
+            return crossings * kSr / 480.0 / 2.0;
+        };
+        const double one = pitchOf (0);
+        m.prepare (kSr); m.setSettings (cs);
+        const double two = pitchOf (1);
+        check (one > 1.8 * two && one < 2.2 * two, "the 1 sounds an octave above beat 2 (" + juce::String (one, 0) + " vs " + juce::String (two, 0) + " Hz)");
+    }
+}
+
 int main (int argc, char** argv)
 {
     juce::ignoreUnused (argc, argv);
@@ -870,6 +1258,10 @@ int main (int argc, char** argv)
     testPitchTracker();
     testTuner();
     testLooper();
+    testLooperTiming();
+    testLooperOnClick();
+    testLooperSeams();
+    testMetronome();
     testChainAndBlocks();
     testBassOdBlend();
     testSynth();

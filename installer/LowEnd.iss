@@ -13,7 +13,7 @@
 ; destination path on ONE screen, next to the checkbox that controls it.
 
 #define AppName      "Low End"
-#define AppVersion   "1.0.0"
+#define AppVersion   "1.1.0"
 #define Publisher    "Amanorsac Studio"
 
 ; A TEST build (scriptsuild-windows-installer.ps1 -Tester) differs in exactly four

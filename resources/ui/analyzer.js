@@ -453,10 +453,109 @@ function analyze (pcm, onProgress) {
     role: n.bv >= 0.5 * n.n ? 'bass' : n.mv >= 0.5 * n.n ? 'melody' : 'other',
   }));
 
+  const chordsOut = chords.map(c => ({ s: +c.s.toFixed(3), e: +c.e.toFixed(3), name: c.name, root: c.root, q: c.q, bass: c.bass }));
+  const beat = trackBeats(pcm, chordsOut);
   if (onProgress) onProgress(1);
-  return { duration: pcm.length / SR, key,
-           chords: chords.map(c => ({ s: +c.s.toFixed(3), e: +c.e.toFixed(3), name: c.name, root: c.root, q: c.q, bass: c.bass })),
-           notes: out };
+  return { duration: pcm.length / SR, key, chords: chordsOut, notes: out,
+           tempo: beat.tempo, beats: beat.beats, downbeat: beat.downbeat, peaks: peaks(pcm, 1200) };
+}
+
+//------------------------------------------------------------ waveform outline
+/** The loudest sample in each of `n` slices: enough to draw the whole song. */
+function peaks (pcm, n) {
+  const out = new Array(n).fill(0), per = Math.max(1, Math.floor(pcm.length / n));
+  for (let k = 0; k < n; k++) {
+    let m = 0;
+    for (let i = k * per, e = Math.min(pcm.length, i + per); i < e; i++) { const v = Math.abs(pcm[i]); if (v > m) m = v; }
+    out[k] = +m.toFixed(3);
+  }
+  return out;
+}
+
+//------------------------------------------------------------ beats
+/**
+ * Tempo and beat times, for the Learn tab's click, count-in and chord ring.
+ *
+ * Onsets are the rises of the log energy of the signal's first difference (the
+ * difference favours attacks over sustained low notes). The tempo is the lag
+ * with the strongest autocorrelation of that onset curve between 60 and 180
+ * BPM, weighted gently toward 100-120 BPM so a song is not read at half or
+ * double time; the phase is the offset whose comb collects the most onset
+ * energy; each beat is then pulled to the strongest onset within an eighth of
+ * a beat, so a drummer who pushes a little still lands under the click.
+ *
+ * The downbeat is the beat-in-four on which the chords most often change,
+ * which is where a bar starts in nearly all popular music.
+ */
+function trackBeats (pcm, chords) {
+  const H = 256, dt = H / SR, n = Math.floor(pcm.length / H);
+  if (n < 64) return { tempo: 0, beats: [], downbeat: 0 };
+  // Onsets by spectral flux: the rise of the log spectrum, bin by bin, summed.
+  // Unlike a level difference it hears a chord change or a strum that does
+  // not get louder, which is most of what a song's beat is made of. A moving
+  // average is subtracted so a loud chorus does not outvote a quiet verse.
+  const NF = 1024, spec = makeFFT(NF), lo = Math.floor(30 * NF / SR), hi = Math.floor(8000 * NF / SR);
+  let prevS = new Float32Array(NF / 2), curS = new Float32Array(NF / 2);
+  const flux = new Float32Array(n);
+  for (let k = 0; k < n; k++) {
+    const mag = spec(pcm, k * H - NF / 2);
+    let s = 0;
+    for (let b = lo; b < hi; b++) { const v = Math.log(1 + 100 * mag[b]); curS[b] = v; const d = v - prevS[b]; if (d > 0) s += d; }
+    flux[k] = s;
+    const t = prevS; prevS = curS; curS = t;
+  }
+  const o = new Float32Array(n), W = Math.round(0.4 / dt);
+  let acc = 0;
+  for (let k = 0; k < n; k++) {
+    acc += flux[k] - (k >= W ? flux[k - W] : 0);
+    o[k] = Math.max(0, flux[k] - acc / Math.min(k + 1, W));
+  }
+
+  // Tempo: the lag whose multiples (the beat, two beats, a bar) all line up
+  // with onsets — a comb rather than a single lag, which is what stops a song
+  // with busy hi-hats being read at double speed, or a half-time groove at half.
+  const lagOf = bpm => 60 / bpm / dt;
+  const acf = new Float32Array(Math.ceil(lagOf(60)) * 4 + 2);
+  for (let lag = 1; lag < acf.length && lag < n; lag++) { let s = 0; for (let k = lag; k < n; k++) s += o[k] * o[k - lag]; acf[lag] = s / (n - lag); }
+  const at = x => { const i = Math.floor(x), f = x - i; return i + 1 < acf.length ? acf[i] * (1 - f) + acf[i + 1] * f : 0; };
+  let bestLag = lagOf(110), bestScore = -1;
+  for (let lag = Math.floor(lagOf(180)); lag <= Math.ceil(lagOf(60)); lag++) {
+    const bpm = 60 / (lag * dt);
+    const comb = at(lag) + 0.5 * at(2 * lag) + 0.35 * at(4 * lag) + 0.25 * at(lag / 2);
+    const prior = Math.exp(-0.5 * Math.pow(Math.log2(bpm / 115) / 0.55, 2));
+    const s = comb * (0.55 + 0.45 * prior);
+    if (s > bestScore) { bestScore = s; bestLag = lag; }
+  }
+  // Refine the lag to a fraction of a hop with a parabola through its neighbours.
+  const ac = lag => { let s = 0; for (let k = lag; k < n; k++) s += o[k] * o[k - lag]; return s / (n - lag); };
+  const a0 = ac(bestLag - 1), a1 = ac(bestLag), a2 = ac(bestLag + 1);
+  const shift = (a0 - 2 * a1 + a2) !== 0 ? 0.5 * (a0 - a2) / (a0 - 2 * a1 + a2) : 0;
+  const L = bestLag + Math.max(-0.5, Math.min(0.5, shift));
+
+  let phase = 0, phaseScore = -1;
+  for (let ph = 0; ph < L; ph++) {
+    let s = 0;
+    for (let t = ph; t < n; t += L) s += o[Math.round(t)] || 0;
+    if (s > phaseScore) { phaseScore = s; phase = ph; }
+  }
+  const beats = [], win = Math.max(1, Math.round(L / 8));
+  for (let t = phase; t < n; t += L) {
+    const c = Math.round(t);
+    let best = c, bv = -1;
+    for (let k = Math.max(0, c - win); k <= Math.min(n - 1, c + win); k++) if (o[k] > bv) { bv = o[k]; best = k; }
+    beats.push(+(((bv > 0 ? best : c) * dt)).toFixed(3));
+  }
+
+  // Downbeat: the beat-of-four where chord changes land.
+  const votes = [0, 0, 0, 0];
+  for (const ch of chords) {
+    let lo = 0, hi = beats.length - 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (beats[m] < ch.s) lo = m + 1; else hi = m; }
+    const i = Math.abs(beats[lo] - ch.s) < (L * dt) / 4 ? lo : (lo > 0 && Math.abs(beats[lo - 1] - ch.s) < (L * dt) / 4 ? lo - 1 : -1);
+    if (i >= 0) votes[i % 4]++;
+  }
+  const downbeat = votes.indexOf(Math.max(...votes));
+  return { tempo: +(60 / (L * dt)).toFixed(1), beats: beats.slice(0, 4000), downbeat };
 }
 
 //------------------------------------------------------------ worker glue

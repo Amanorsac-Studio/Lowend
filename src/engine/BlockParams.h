@@ -82,7 +82,7 @@ inline const std::vector<BlockSpec>& blockRegistry()
             { BlockType::bassOd, "bassOd", "Modern Bass OD", "Drive", {}, {
                 { "drive", "Drive", ParamKind::Float, 0, 100, 35 },
                 { "tone", "Tone", ParamKind::Float, 0, 100, 50 },
-                { "blend", "Blend", ParamKind::Float, 0, 100, 60 },
+                { "blend", "Mix", ParamKind::Float, 0, 100, 100 },
                 { "bass", "Bass", ParamKind::Float, -12, 12, 0, {}, "dB" },
                 { "treble", "Treble", ParamKind::Float, -12, 12, 0, {}, "dB" },
                 { "level", "Level", ParamKind::Float, 0, 100, 50 } } },
@@ -99,7 +99,7 @@ inline const std::vector<BlockSpec>& blockRegistry()
                 { "tone", "Tone", ParamKind::Float, 0, 100, 50 },
                 { "level", "Level", ParamKind::Float, 0, 100, 40 },
                 { "gate", "Gate", ParamKind::Float, 0, 100, 20 },
-                { "blend", "Blend", ParamKind::Float, 0, 100, 100 } } },
+                { "blend", "Mix", ParamKind::Float, 0, 100, 100 } } },
 
             { BlockType::boost, "boost", "Ranger Boost", "Drive", {}, {
                 { "gain", "Gain", ParamKind::Float, 0, 24, 6, {}, "dB" },
@@ -336,7 +336,8 @@ inline const std::vector<ParamSpec>& looperParams()
         { "speed", "Speed", ParamKind::Enum, 0, 1, 0, { "Normal", "Half" } },
         { "reverse", "Reverse", ParamKind::Bool, 0, 1, 0 },
         { "fadeMs", "Seam Fade", ParamKind::Float, 1, 50, 6, {}, "ms" },
-        { "playThrough", "Play Through", ParamKind::Bool, 0, 1, 1 } };   // hear the live bass while a loop runs
+        { "playThrough", "Play Through", ParamKind::Bool, 0, 1, 1 },
+        { "autoStart", "Start On Note", ParamKind::Bool, 0, 1, 1 } };     // REC waits for the first note, on the bar   // hear the live bass while a loop runs
     return p;
 }
 

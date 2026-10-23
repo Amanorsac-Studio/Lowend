@@ -1,0 +1,34 @@
+name: Preset submission
+description: Send us presets you made in Low End.
+title: "[Preset] "
+labels: ["beta", "preset"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        In Low End, open **Library › Share presets**, choose the presets and add your name if you want it credited.
+        They are copied to `Documents/Amanorsac Studio/Low End/Beta Presets/`. Attach the `.rig.json` files from that folder below (or a zip of them).
+  - type: input
+    id: credit
+    attributes:
+      label: Credit
+      description: The name to credit if a preset is used. Leave empty to stay anonymous.
+  - type: textarea
+    id: presets
+    attributes:
+      label: Preset files
+      description: Drag the .rig.json files (or a zip) here.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: What they are for
+      description: The song, style or bass each preset is made for, and anything we should know.
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Permission
+      options:
+        - label: Amanorsac Studio may include these presets, with my credit if I gave one, in a future version of Low End.
+          required: true

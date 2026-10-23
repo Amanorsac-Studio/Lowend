@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Email the studio
+    url: mailto:hello@amanorsac.studio
+    about: For anything that is not a bug report or a preset.

@@ -1,0 +1,47 @@
+name: Bug report
+description: Something in Low End did not do what you expected.
+title: "[Bug] "
+labels: ["beta", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thank you for testing Low End. One problem per report, please.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Shown in Settings › About & help.
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: Computer
+      options: [Windows, macOS (Apple silicon), macOS (Intel)]
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: How you ran it
+      options: [Standalone app, VST3 in a DAW, Audio Unit in a DAW]
+    validations:
+      required: true
+  - type: input
+    id: interface
+    attributes:
+      label: Audio interface and driver
+      description: Shown in Settings › Audio, for example "UMC ASIO Driver".
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Screenshots or recordings
+      description: Drag files here if they help.

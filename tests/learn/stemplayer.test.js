@@ -169,6 +169,60 @@ for (const rate of [1, 0.75, 0.5, 1.25]) {
   check(p.inPos / SR >= 1.0 && p.inPos / SR <= 2.05, `a loop keeps the position inside it (at ${(p.inPos / SR).toFixed(2)} s)`);
 }
 
+//----------------------------------------------------------- transposition
+// Up a fifth (7 semitones) must raise a 220 Hz tone to 329.6 Hz and keep the
+// song's timing: after one second of output the song position is one second.
+{
+  const a = sine(SR * 4, 220);
+  const { p } = make([a]);
+  p.port.onmessage({ data: { type: 'pitch', semitones: 7 } });
+  p.port.onmessage({ data: { type: 'play', at: 0 } });
+  const [L] = pull(p, SR * 2);
+  close(freqOf(L, Math.floor(SR * 0.5), Math.floor(SR * 1.5)), 220 * Math.pow(2, 7 / 12), 3, 'up 7 semitones plays the tone a fifth higher');
+  close(p.songT, 2.0, 0.08, 'transposing does not change the speed');
+}
+{
+  const a = sine(SR * 4, 220);
+  const { p } = make([a]);
+  p.port.onmessage({ data: { type: 'pitch', semitones: -2 } });
+  p.port.onmessage({ data: { type: 'rate', rate: 0.75 } });
+  p.port.onmessage({ data: { type: 'play', at: 0 } });
+  const [L] = pull(p, SR * 2);
+  close(freqOf(L, Math.floor(SR * 0.5), Math.floor(SR * 1.5)), 220 * Math.pow(2, -2 / 12), 3, 'down 2 semitones at 75 % speed keeps the new pitch');
+  close(p.songT, 1.5, 0.08, 'and the speed is still 75 %');
+}
+
+//------------------------------------------------------- the click, count-in
+/** Sample indices where a click starts (a silent song, so any sound is a click). */
+const onsets = (x) => { const at = []; for (let i = 1; i < x.length; i++) if (x[i - 1] === 0 && x[i] !== 0) at.push(i); return at; };
+{
+  const silent = new Float32Array(SR * 4);
+  const { p } = make([silent]);
+  p.port.onmessage({ data: { type: 'beats', beats: [0.5, 1.0, 1.5, 2.0, 2.5], downbeat: 0, tempo: 120 } });
+  p.port.onmessage({ data: { type: 'click', on: true, level: 0.5 } });
+  p.port.onmessage({ data: { type: 'play', at: 0, countIn: 4 } });
+  const [L] = pull(p, SR * 4);
+  const at = onsets(L);
+  check(at.length === 7, 'a 4-beat count-in, then a click on each song beat heard in 2 s (expect 4 + 3 = 7, got ' + at.length + ' clicks)');
+  // Count-in: 4 clicks 0.5 s apart from the start; the song (and its first beat
+  // at 0.5 s of song time) begins 2 s in, so that click is at 2.5 s.
+  const gaps = at.slice(0, 4).map((t, i, a) => i ? t - a[i - 1] : 0).slice(1);
+  check(gaps.every(g => Math.abs(g - SR * 0.5) <= 1), 'the count-in clicks are at the song tempo');
+  check(Math.abs(at[4] - SR * 2.5) <= 2, 'the first song click lands on the first beat after the count-in (at ' + (at[4] / SR).toFixed(3) + ' s)');
+}
+{
+  // At half speed the song's beats are twice as far apart.
+  const silent = new Float32Array(SR * 4);
+  const { p } = make([silent]);
+  p.port.onmessage({ data: { type: 'beats', beats: [0.5, 1.0, 1.5], downbeat: 0, tempo: 120 } });
+  p.port.onmessage({ data: { type: 'click', on: true } });
+  p.port.onmessage({ data: { type: 'rate', rate: 0.5 } });
+  p.port.onmessage({ data: { type: 'play', at: 0 } });
+  const [L] = pull(p, SR * 3.5);
+  const at = onsets(L);
+  check(at.length === 3 && Math.abs(at[1] - at[0] - SR) <= 2, 'at half speed the clicks slow down with the song');
+}
+
 //----------------------------------------------------------------- end of song
 {
   const a = sine(Math.floor(SR * 0.5), 110);

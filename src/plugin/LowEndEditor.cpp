@@ -2,7 +2,49 @@
 #include "LowEndEditor.h"
 #include "LowEndUi.h"
 
+#if JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #ifndef WIN32_LEAN_AND_MEAN
+  #define WIN32_LEAN_AND_MEAN
+ #endif
+ #include <windows.h>
+#endif
+
 namespace lowend {
+
+/// Both web views are WebView2 windows parented to the same top-level window,
+/// and the page's own window covers the whole editor. Whichever is higher in
+/// the z-order wins, and the page tends to end up on top (it is focused, it was
+/// created first and re-raised), which hides the YouTube view completely while
+/// it goes on loading pages behind it. So every time the view is shown, its
+/// window is raised: every WebView2 host window that is NOT the full size of
+/// the editor is the YouTube view.
+static void raiseOverlayWebViews (juce::Component& editor)
+{
+   #if JUCE_WINDOWS
+    auto* peer = editor.getPeer();
+    if (peer == nullptr) return;
+    auto top = (HWND) peer->getNativeHandle();
+    RECT client {};
+    if (! GetClientRect (top, &client)) return;
+    for (auto child = GetWindow (top, GW_CHILD); child != nullptr; child = GetWindow (child, GW_HWNDNEXT))
+    {
+        wchar_t cls[64] {};
+        GetClassNameW (child, cls, 64);
+        if (juce::String (cls) != "Chrome_WidgetWin_0" || ! IsWindowVisible (child)) continue;
+        RECT r {};
+        GetWindowRect (child, &r);
+        const bool fullSize = (r.right - r.left) >= (client.right - client.left) - 2
+                           && (r.bottom - r.top) >= (client.bottom - client.top) - 2;
+        if (! fullSize)
+            SetWindowPos (child, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+   #else
+    juce::ignoreUnused (editor);
+   #endif
+}
 
 namespace {
     /// The test-build gate as the page sees it. Status names are the page's
@@ -33,6 +75,8 @@ namespace {
             case Looper::State::playing:       return "playing";
             case Looper::State::overdubbing:   return "overdub";
             case Looper::State::stopped:       return "stopped";
+            case Looper::State::armed:         return "armed";
+            case Looper::State::cued:          return "cued";
             default:                           return "idle";
         }
     }
@@ -143,6 +187,50 @@ juce::var LowEndEditor::stemCommand (const juce::var& a)
     return false;
 }
 
+/// The Cover tab. The song is played and recorded by the engine (CoverPlayer);
+/// the page only sends the transport and the mix and draws what it is told.
+juce::var LowEndEditor::coverCommand (const juce::var& a)
+{
+    auto& cv = proc_.cover();
+    const auto action = a.getProperty ("action", {}).toString();
+    const auto num = [&a] (const char* k, double d) { return a.hasProperty (k) ? (double) a.getProperty (k, d) : d; };
+    const auto id = a.getProperty ("id", {}).toString();
+
+    if (action == "status") return cv.describe();
+    if (action == "has")    return ! CoverPlayer::songFiles (id).isEmpty();
+    if (action == "load")   return cv.load (id, a.getProperty ("name", {}).toString());
+    if (action == "unload") { cv.unload(); return true; }
+    if (action == "begin")  return cv.beginUpload (id, (int) num ("frames", 0));
+    if (action == "chunk")  return cv.appendChunk (id, (int) num ("offset", 0), a.getProperty ("data", {}).toString());
+    if (action == "end")    return cv.finishUpload (id, a.getProperty ("name", {}).toString());
+    if (action == "play")   return cv.play (num ("from", 0), (int) num ("countIn", 0), num ("bpm", 120), (bool) a.getProperty ("record", false));
+    if (action == "stop")   { cv.stop(); return true; }
+    if (action == "punch")  { cv.setPunch (num ("a", -1), num ("b", -1)); return true; }
+    if (action == "levels") { cv.setLevels ((float) num ("song", 0), (float) num ("take", 0), (bool) a.getProperty ("hearTake", true)); return true; }
+    if (action == "stem")   { cv.setStem ((int) num ("index", -1), (float) num ("db", 0), (bool) a.getProperty ("mute", false), (bool) a.getProperty ("solo", false)); return true; }
+    if (action == "click")  { cv.setClick ((bool) a.getProperty ("on", false), num ("bpm", 120), num ("t0", 0), (int) num ("beats", 4), (float) num ("db", -6)); return true; }
+    if (action == "clickBeats")
+    {
+        std::vector<double> t;
+        std::vector<bool> acc;
+        if (auto* b = a.getProperty ("beats", {}).getArray()) for (auto& v : *b) t.push_back ((double) v);
+        if (auto* b = a.getProperty ("accents", {}).getArray()) for (auto& v : *b) acc.push_back ((bool) v);
+        cv.setClickBeats (t, std::move (acc));
+        return true;
+    }
+    if (action == "take")   return cv.selectTake ((int) num ("number", 0));
+    if (action == "deleteTake") return cv.deleteTake ((int) num ("number", 0));
+    if (action == "export") return cv.exportMix ((int) num ("number", 0));
+    if (action == "reveal")
+    {
+        const auto f = juce::File (a.getProperty ("path", {}).toString());
+        // Only files Cover itself wrote.
+        if (f.isAChildOf (CoverPlayer::coversDir())) { f.revealToUser(); return true; }
+        return false;
+    }
+    return false;
+}
+
 juce::var LowEndEditor::ytCommand (const juce::var& a)
 {
     const auto action = a.getProperty ("action", {}).toString();
@@ -184,6 +272,14 @@ juce::var LowEndEditor::ytCommand (const juce::var& a)
         ytVisible_ = bounds.getWidth() > 40 && bounds.getHeight() > 40;
         yt_->setBounds (bounds);
         yt_->setVisible (ytVisible_);
+        if (ytVisible_)
+        {
+            yt_->toFront (false);
+            // The native window appears a moment after the component does.
+            juce::Component::SafePointer<LowEndEditor> self (this);
+            raiseOverlayWebViews (*this);
+            juce::Timer::callAfterDelay (150, [self] { if (self != nullptr && self->ytVisible_) raiseOverlayWebViews (*self); });
+        }
         return true;
     }
     if (action == "home")    { yt_->goToURL ("https://www.youtube.com/"); return true; }
@@ -236,6 +332,7 @@ juce::var LowEndEditor::ytCommand (const juce::var& a)
 void LowEndEditor::ytPoll()
 {
     if (yt_ == nullptr || ! ytVisible_) return;
+    raiseOverlayWebViews (*this);         // the page can take the top of the z-order back (focus, reload)
     juce::Component::SafePointer<LowEndEditor> self (this);
     yt_->evaluateJavascript (
         // The page title is reported even with no video on the page (the home or
@@ -402,6 +499,7 @@ void LowEndEditor::timerCallback()
         }
     }
 
+    if (proc_.cover().poll()) emit ("cover", proc_.cover().describe());
     if (stateDirty_) { stateDirty_ = false; emit ("state", buildState()); }
     emit ("tick", buildTick());
     if (++ticksSinceState_ % 30 == 0) emit ("state", buildState());   // once a second, catch-all
@@ -427,20 +525,34 @@ juce::var LowEndEditor::buildState() const
     // "unsaved" and to decide whether Save is meaningful — a player should never
     // have to guess whether their tweak survived the next preset change.
     {
-        bool dirty = proc_.currentPresetId().isEmpty();
-        if (const auto* saved = proc_.library().findPreset (proc_.currentPresetId()))
+        set (st, "dirty", proc_.isDirty());
+        set (st, "override", proc_.usingOverride());
+        // Every edit not yet saved, so lists can mark them and Close can ask.
+        juce::Array<juce::var> pend;
+        for (auto& e : proc_.pendingEdits())
         {
-            auto live = rig;
-            live.id = saved->id;
-            live.name = saved->name;
-            live.order = saved->order;
-            dirty = juce::JSON::toString (rigToVar (live), true) != juce::JSON::toString (rigToVar (*saved), true);
+            auto o = obj();
+            const bool ov = e.songId.isNotEmpty() && e.scene >= 0;
+            const auto* sg = proc_.library().findSong (e.songId);
+            const bool isOverride = sg != nullptr && sg->overrides.count (e.scene) > 0 && sg->presetIds[e.scene] == e.presetId;
+            set (o, "key", LowEndProcessor::editKey (e.presetId, e.songId, e.scene, isOverride));
+            set (o, "preset", e.presetId);
+            set (o, "name", e.rig.name);
+            set (o, "song", ov && sg ? e.songId : juce::String());
+            set (o, "songName", ov && sg ? sg->name : juce::String());
+            set (o, "scene", e.scene);
+            set (o, "override", isOverride);
+            pend.add (o);
         }
-        set (st, "dirty", dirty);
+        set (st, "edits", pend);
+        set (st, "liveKey", proc_.liveEditKey());
     }
     set (st, "songId", proc_.currentSongId());
     set (st, "scene", proc_.currentScene());
     set (st, "tempo", proc_.tempo());
+    // What Low End itself adds (oversampling, convolution, the limiter lookahead),
+    // in samples, so the Settings panel can show the round trip honestly.
+    set (st, "latency", proc_.getLatencySamples());
     set (st, "hostTempo", proc_.usingHostTempo());
     set (st, "tunerActive", proc_.tunerActive());
     set (st, "tester", testerVar (proc_.testerGated(), proc_.testerStatus()));
@@ -511,6 +623,36 @@ juce::var LowEndEditor::buildState() const
             set (o, "id", r.id);
             set (o, "name", r.name);
             set (o, "colour", hex (r.colour));
+            // What the Library needs to draw a preset without loading it: its
+            // chain at a glance and its history.
+            auto pv = [] (const ParamValues& v, const char* k, float d) { auto it = v.find (k); return it == v.end() ? d : it->second; };
+            set (o, "amp", (int) pv (r.amp, "model", 0.0f));
+            set (o, "cab", (int) pv (r.cab, "model", 1.0f));
+            auto chain = [] (const ChainState& c)
+            {
+                juce::Array<juce::var> out;
+                for (auto& b : c)
+                {
+                    auto e = juce::var (new juce::DynamicObject());
+                    e.getDynamicObject()->setProperty ("id", juce::String (blockSpec (b.type).id));
+                    e.getDynamicObject()->setProperty ("name", juce::String (blockSpec (b.type).name));
+                    e.getDynamicObject()->setProperty ("category", juce::String (blockSpec (b.type).category));
+                    e.getDynamicObject()->setProperty ("off", b.bypassed);
+                    out.add (e);
+                }
+                return out;
+            };
+            set (o, "pre", chain (r.pre));
+            set (o, "post", chain (r.post));
+            juce::Array<juce::var> hist;
+            for (auto& c : r.history)
+            {
+                auto e = obj();
+                set (e, "t", (double) c.time);
+                set (e, "x", c.text);
+                hist.add (e);
+            }
+            set (o, "history", hist);
             presets.add (o);
         }
         set (st, "presets", presets);
@@ -574,6 +716,11 @@ juce::var LowEndEditor::buildState() const
         for (int i = 1; i < (int) SwitchRole::Count; ++i) roles.add (juce::String (switchRoleId ((SwitchRole) i)));
         set (st, "switchRoles", roles);
         set (st, "learning", proc_.learnTarget());
+        set (st, "bypassAll", proc_.bypassAll());
+        set (st, "tunerRef", proc_.tunerReference());
+        set (st, "tunerMutes", proc_.tunerMutes());
+        set (st, "gateAuto", proc_.gateAuto());
+        set (st, "humHz", proc_.humHz());
     }
 
     return st;
@@ -589,8 +736,18 @@ juce::var LowEndEditor::buildTick() const
     set (t, "gr", m.gainReduction.load());
     set (t, "supply", m.ampSupply.load());
     set (t, "gate", m.gateOpen.load());
+    set (t, "floor", m.noiseFloorDb.load());
     set (t, "clip", m.clipping.load());
     set (t, "tempo", proc_.tempo());
+    {
+        auto& cv = proc_.cover();
+        auto c = obj();
+        set (c, "pos", cv.positionSeconds());
+        set (c, "playing", cv.isPlaying());
+        set (c, "recording", cv.isRecording());
+        set (c, "countIn", cv.isCountingIn());
+        set (t, "cover", c);
+    }
 
     auto& lp = proc_.looper();
     auto loop = obj();
@@ -603,7 +760,27 @@ juce::var LowEndEditor::buildTick() const
     juce::Array<juce::var> layers;
     for (int i = 0; i < kMaxLoopLayers; ++i) layers.add (lp.layerHasAudio (i));
     set (loop, "layers", layers);
+    set (loop, "countingIn", proc_.countingIn());
+    set (loop, "grid", lp.gridActive());
     set (t, "loop", loop);
+
+    // The click: settings plus what the player needs to see live.
+    const auto& cs = proc_.clickSettings();
+    auto click = obj();
+    set (click, "on", cs.on);
+    set (click, "level", cs.levelDb);
+    set (click, "sound", cs.sound);
+    set (click, "accent", cs.accent);
+    set (click, "beats", cs.beatsPerBar);
+    set (click, "unit", cs.beatUnit);
+    set (click, "loopBars", cs.loopBars);
+    set (click, "eighths", cs.eighths);
+    set (click, "countIn", cs.countInBars);
+    set (click, "output", cs.output);
+    set (click, "beat", proc_.clickBeat());
+    set (click, "separate", proc_.clickSeparateAvailable());
+    set (click, "standalone", proc_.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
+    set (t, "click", click);
 
     auto& tn = proc_.tuner();
     auto tuner = obj();
@@ -654,13 +831,33 @@ juce::var LowEndEditor::runCommand (const juce::String& name, const juce::var& a
 
     if (name == "loadPreset") { proc_.loadPreset (str ("id")); return true; }
     if (name == "loadSong")   { proc_.loadSong (str ("id"), (int) num ("scene", 0)); return true; }
-    if (name == "scene")      { proc_.nextScene ((int) num ("delta", 1)); return true; }
+
+    if (name == "resolveEdit")
+    {
+        const auto how = str ("how");
+        return proc_.resolveEdit (str ("key"), how == "set" ? LowEndProcessor::Resolve::toSet
+                                              : how == "discard" ? LowEndProcessor::Resolve::discard
+                                              : LowEndProcessor::Resolve::toPreset);
+    }
+    if (name == "quit")
+    {
+        // The close sheet has been answered: quit for real (standalone only).
+        if (juce::JUCEApplicationBase::isStandaloneApp())
+            juce::MessageManager::callAsync ([] { if (auto* app = juce::JUCEApplicationBase::getInstance()) app->quit(); });
+        return true;
+    }
     if (name == "savePreset")
     {
         auto r = proc_.rig();
         const auto newName = str ("name");
         if (newName.isNotEmpty()) r.name = newName;
-        if ((bool) a.getProperty ("asNew", false)) r.id = {};
+        if ((bool) a.getProperty ("asNew", false)) { r.id = {}; r.history.clear(); noteChange (r, "Saved as a new preset"); }
+        else if (const auto* before = proc_.library().findPreset (r.id))
+        {
+            r.history = before->history;
+            noteChange (r, describeRigChange (*before, r));
+        }
+        else noteChange (r, "Created");
         const auto id = proc_.library().savePreset (r);
         proc_.editableRig().id = id;
         proc_.editableRig().name = r.name;
@@ -676,6 +873,7 @@ juce::var LowEndEditor::runCommand (const juce::String& name, const juce::var& a
     {
         auto r = emptyRig (str ("name").isNotEmpty() ? str ("name") : juce::String ("New Rig"));
         r.order = 1000;
+        noteChange (r, "Created");
         const auto id = proc_.library().savePreset (r);
         proc_.loadPreset (id);
         stateDirty_ = true;
@@ -687,7 +885,10 @@ juce::var LowEndEditor::runCommand (const juce::String& name, const juce::var& a
         auto r = src != nullptr ? *src : proc_.rig();
         r.id = {};
         r.order = 1000;
+        const auto from = r.name;
         r.name = str ("name").isNotEmpty() ? str ("name") : r.name + " copy";
+        r.history.clear();
+        noteChange (r, "Created from " + from);
         const auto id = proc_.library().savePreset (r);
         stateDirty_ = true;
         return id;
@@ -793,10 +994,11 @@ juce::var LowEndEditor::runCommand (const juce::String& name, const juce::var& a
     {
         const auto action = str ("action");
         auto& lp = proc_.looper();
-        if (action == "record") lp.recordPressed();
-        else if (action == "stop") lp.stopPressed();
+        // Record goes through the processor: a count-in may run first.
+        if (action == "record") proc_.requestLoopRecord();
+        else if (action == "stop") { proc_.requestCountInCancel(); lp.stopPressed(); }
         else if (action == "undo") lp.undoPressed();
-        else if (action == "clear") lp.clearPressed();
+        else if (action == "clear") { proc_.requestCountInCancel(); lp.clearPressed(); }
         else if (action == "layer") lp.selectLayer ((int) num ("index", 0));
         else if (action == "export")
         {
@@ -808,6 +1010,25 @@ juce::var LowEndEditor::runCommand (const juce::String& name, const juce::var& a
         return true;
     }
 
+
+    if (name == "click")
+    {
+        // Any subset of the settings; the rest keep their values.
+        auto cs = proc_.clickSettings();
+        if (a.hasProperty ("on"))      cs.on = (bool) a.getProperty ("on", false);
+        if (a.hasProperty ("level"))   cs.levelDb = (float) num ("level", -6.0);
+        if (a.hasProperty ("sound"))   cs.sound = (int) num ("sound", 0);
+        if (a.hasProperty ("accent"))  cs.accent = (bool) a.getProperty ("accent", true);
+        if (a.hasProperty ("beats"))   cs.beatsPerBar = juce::jlimit (1, 12, (int) num ("beats", 4));
+        if (a.hasProperty ("unit"))    cs.beatUnit = (int) num ("unit", 4) == 8 ? 8 : 4;
+        if (a.hasProperty ("loopBars")) cs.loopBars = (int) num ("loopBars", 0);
+        if (a.hasProperty ("eighths")) cs.eighths = (bool) a.getProperty ("eighths", false);
+        if (a.hasProperty ("countIn")) cs.countInBars = (int) num ("countIn", 0);
+        if (a.hasProperty ("output"))  cs.output = (int) num ("output", 0);
+        proc_.setClickSettings (cs);
+        stateDirty_ = true;
+        return true;
+    }
 
     if (name == "learn")
     {
@@ -882,10 +1103,91 @@ juce::var LowEndEditor::runCommand (const juce::String& name, const juce::var& a
         else if (which == "support") target = "mailto:hello@amanorsac.studio";
         return target.isNotEmpty() && juce::URL (target).launchInDefaultBrowser();
     }
+    if (name == "exportPreset")
+    {
+        const auto* p = proc_.library().findPreset (str ("id"));
+        if (p == nullptr) return false;
+        auto dir = exportsDir();
+        dir.createDirectory();
+        auto file = dir.getNonexistentChildFile (juce::File::createLegalFileName (p->name), ".rig.json", false);
+        if (! file.replaceWithText (juce::JSON::toString (rigToVar (*p), false))) return false;
+        file.revealToUser();
+        return file.getFullPathName();
+    }
+    if (name == "sharePresets")
+    {
+        // Beta: the presets a tester chose, copied with readable names into
+        // Documents/Amanorsac Studio/<Product>/Beta Presets, with a note on how
+        // to send them. Nothing leaves the computer: the tester sends the files.
+        auto ids = a.getProperty ("ids", {});
+        if (! ids.isArray() || ids.size() == 0 || ids.size() > 200) return false;
+        const auto credit = a.getProperty ("credit", {}).toString().trim().substring (0, 60);
+        auto dir = betaPresetsDir();
+        dir.createDirectory();
+        int written = 0;
+        for (auto& v : *ids.getArray())
+        {
+            const auto* p = proc_.library().findPreset (v.toString());
+            if (p == nullptr) continue;
+            auto copy = *p;
+            if (credit.isNotEmpty()) copy.notes = (copy.notes.isNotEmpty() ? copy.notes + "\n" : juce::String()) + "Shared by " + credit;
+            auto obj = rigToVar (copy);
+            if (auto* d = obj.getDynamicObject())
+            {
+                d->setProperty ("sharedBy", credit);
+                d->setProperty ("sharedFrom", juce::String (JucePlugin_Name) + " " + JucePlugin_VersionString);
+                d->setProperty ("sharedOn", juce::Time::getCurrentTime().formatted ("%Y-%m-%d"));
+            }
+            auto file = dir.getNonexistentChildFile (juce::File::createLegalFileName (copy.name), ".rig.json", false);
+            if (file.replaceWithText (juce::JSON::toString (obj, false))) ++written;
+        }
+        dir.getChildFile ("READ ME - how to send these.txt").replaceWithText (
+            juce::String (JucePlugin_Name) + " beta: presets to send back\n"
+            "\n"
+            "This folder holds the presets you chose in Library > Share presets.\n"
+            "Each file is one preset. Nothing here is sent automatically.\n"
+            "\n"
+            "To send them:\n"
+            "  1. Select the .rig.json files you want to share (or zip the folder).\n"
+            "  2. Attach them to a new issue on the beta's GitHub page, using the\n"
+            "     \"Preset submission\" form, or email them to hello@amanorsac.studio.\n"
+            "\n"
+            "By sending a preset you agree that Amanorsac Studio may include it,\n"
+            "with your credit if you gave one, in a future version of the product.\n");
+        dir.revealToUser();
+        return written;
+    }
+    if (name == "backup")
+    {
+        // Everything the player made, in one zip they can keep somewhere else.
+        const auto src = LowEndProcessor::appDataDirectory();
+        auto dir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Low End Backups");
+        dir.createDirectory();
+        auto zip = dir.getNonexistentChildFile ("Low End backup " + juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H%M"), ".zip", false);
+        juce::ZipFile::Builder b;
+        for (auto& f : src.findChildFiles (juce::File::findFiles, true))
+            // Stems (Learn) are rebuilt from the song and the model is reinstalled;
+            // both are hundreds of megabytes, so neither goes in the backup.
+            if (! f.isAChildOf (src.getChildFile ("Learn")) && ! f.isAChildOf (src.getChildFile ("Models")))
+                b.addFile (f, 6, f.getRelativePathFrom (src).replaceCharacter ('\\', '/'));
+        juce::FileOutputStream os (zip);
+        if (! os.openedOk()) return false;
+        b.writeToStream (os, nullptr);
+        os.flush();
+        zip.revealToUser();
+        return zip.getFullPathName();
+    }
+    if (name == "bypassAll") { proc_.setBypassAll ((bool) a.getProperty ("on", ! proc_.bypassAll())); stateDirty_ = true; return proc_.bypassAll(); }
+    if (name == "gateAuto")  { proc_.setGateAuto ((bool) a.getProperty ("on", ! proc_.gateAuto())); stateDirty_ = true; return proc_.gateAuto(); }
+    if (name == "hum")       { proc_.setHumHz ((int) num ("hz", 0)); stateDirty_ = true; return proc_.humHz(); }
+    if (name == "tunerRef")  { proc_.setTunerReference ((float) num ("hz", 440.0)); stateDirty_ = true; return proc_.tunerReference(); }
+    if (name == "tunerMute") { proc_.setTunerMutes ((bool) a.getProperty ("on", true)); stateDirty_ = true; return true; }
+    if (name == "scene")     { if (a.hasProperty ("index")) proc_.jumpToScene ((int) num ("index", 0)); else proc_.nextScene ((int) num ("delta", 1)); return true; }
     if (name == "openFolder") { LowEndProcessor::appDataDirectory().revealToUser(); return true; }
     if (name == "refresh")    { stateDirty_ = true; return true; }
     if (name == "yt")         return ytCommand (a);
     if (name == "stem")       return stemCommand (a);
+    if (name == "cover")      return coverCommand (a);
 
     juce::ignoreUnused (arg);
     return false;

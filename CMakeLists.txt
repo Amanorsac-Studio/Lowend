@@ -13,7 +13,7 @@
 # Reuses (read-only) the JUCE checkout that lives next to JM Signature. Nothing
 # here writes into apps/signature or apps/sanctuary.
 cmake_minimum_required(VERSION 3.24)
-project(LowEnd VERSION 1.0.0 LANGUAGES C CXX)
+project(LowEnd VERSION 1.1.0 LANGUAGES C CXX)
 
 # The C++ runtime is linked STATICALLY into our own binaries. A plug-in is
 # loaded into somebody else's process on a machine that may never have had the
@@ -307,6 +307,30 @@ target_link_libraries(LowEndGateTest PRIVATE
     juce::juce_dsp
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
+
+# The signal path as a player hears it: Bypass All, and pedals that fade in
+# rather than comb against the clean signal.
+juce_add_console_app(LowEndProcTest PRODUCT_NAME "LowEndProcTest")
+target_sources(LowEndProcTest PRIVATE
+    tests/ProcessorTest.cpp
+    src/plugin/LowEndProcessor.cpp
+    src/learn/StemSeparator.cpp
+    src/learn/Separator.cpp)
+target_include_directories(LowEndProcTest PRIVATE src)
+target_compile_definitions(LowEndProcTest PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=1
+    LOWEND_HEADLESS=1)
+target_link_libraries(LowEndProcTest PRIVATE
+    lowend_ort
+    juce::juce_audio_utils
+    juce::juce_cryptography
+    juce::juce_dsp
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
+lowend_stage_onnxruntime(LowEndProcTest)
+add_test(NAME LowEndSignalPath COMMAND LowEndProcTest)
 
 # Stem separation on a real file, timed:
 #   LowEndStems <song.wav> <out-dir> [best]

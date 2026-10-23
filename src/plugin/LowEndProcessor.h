@@ -19,8 +19,10 @@
 #include <atomic>
 #include "../engine/AmpDsp.h"
 #include "../engine/BassSynth.h"
+#include "../engine/CoverPlayer.h"
 #include "../engine/Limiter.h"
 #include "../engine/Looper.h"
+#include "../engine/Metronome.h"
 #include "../engine/PedalDsp.h"
 #include "../engine/PitchTrack.h"
 #include "../engine/RigModel.h"
@@ -36,6 +38,8 @@ struct Meters
 {
     std::atomic<float> inPeak { 0 }, outPeak { 0 }, ampSupply { 1 }, gainReduction { 0 }, synthPeak { 0 };
     std::atomic<bool> gateOpen { false }, clipping { false };
+    /// The input's noise floor (dBFS peak) measured while nothing is played; -120 until known.
+    std::atomic<float> noiseFloorDb { -120.0f };
 };
 
 class LowEndProcessor final : public juce::AudioProcessor,
@@ -92,6 +96,11 @@ public:
     /// The Learn tab's stem separation. Lives here rather than in the editor so
     /// a separation in progress survives the plugin window being closed.
     StemSeparator& stems() { return stems_; }
+    /// The Cover tab's song player and recorder.
+    CoverPlayer& cover() { return cover_; }
+    /// Standalone: the device's input + output latency, so a take lands where
+    /// it was played (see CoverPlayer.h). A plug-in leaves it at 0.
+    void setDeviceLatency (int samples) { deviceLatency_.store (samples); cover_.setLatency (samples + rigLatency_.load()); }
     void loadPreset (const juce::String& presetId);
     void loadSong (const juce::String& songId, int sceneIndex = 0);
     /// Leave the song and go back to browsing the flat preset list.
@@ -107,8 +116,72 @@ public:
     bool usingHostTempo() const { return hostTempoValid_.load(); }
 
     void setTunerActive (bool on);
+
+    //------------------------------------------------------------ unsaved edits
+    /// An edit not yet saved. Kept when the player changes preset, written to
+    /// disk so it survives a restart, and resolved when the app is closed.
+    struct PendingEdit { Rig rig; juce::String presetId, songId; int scene = -1; };
+    /// The edits not yet saved, the live rig included when it differs.
+    std::vector<PendingEdit> pendingEdits() const;
+    bool hasPendingEdits() const { return ! pendingEdits().empty(); }
+    /// The live rig differs from what it was loaded from (preset or scene override).
+    bool isDirty() const;
+    /// Is the live rig a set scene's own version (an override)?
+    bool usingOverride() const { return overrideActive_; }
+    enum class Resolve { toPreset, toSet, discard };
+    /// Save or drop one pending edit. `key` is from `editKey`.
+    bool resolveEdit (const juce::String& key, Resolve how);
+    static juce::String editKey (const juce::String& presetId, const juce::String& songId, int scene, bool isOverride)
+    { return isOverride ? presetId + "@" + songId + "#" + juce::String (scene) : presetId; }
+    juce::String liveEditKey() const { return editKey (currentPresetId_, loadedSongId_, loadedScene_, overrideActive_); }
+    /// Bypass All: every pedal, the amp and the cab out of circuit together, so
+    /// the raw instrument is heard. Crossfaded over 20 ms, latency-aligned.
+    void setBypassAll (bool on) { bypassAll_.store (on); sendChangeMessage(); }
+    bool bypassAll() const { return bypassAll_.load(); }
+    /// Concert pitch for the tuner (A4, 415-466 Hz) and whether the output is
+    /// muted while it is up. Saved with the app, not the preset.
+    void setTunerReference (float a4Hz) { tuner_.setReferenceHz (a4Hz); sendChangeMessage(); }
+    float tunerReference() const { return tuner_.referenceHz(); }
+    void setTunerMutes (bool on) { tunerMutes_ = on; sendChangeMessage(); }
+    /// Auto gate: the gate threshold is lifted to sit 12 dB above the measured
+    /// noise floor (hum from the instrument, interface noise), so the preset's
+    /// own threshold is a minimum, not the whole story. Saved with the app.
+    void setGateAuto (bool on) { gateAuto_.store (on); sendChangeMessage(); }
+    bool gateAuto() const { return gateAuto_.load(); }
+    /// Mains hum filter on the input: 0 off, else 50 or 60 (Hz). Narrow cuts at
+    /// the fundamental and seven harmonics. Saved with the app.
+    void setHumHz (int hz) { humHz_.store (hz == 50 || hz == 60 ? hz : 0); sendChangeMessage(); }
+    int humHz() const { return humHz_.load(); }
+    bool tunerMutes() const { return tunerMutes_; }
+    /// Load scene `index` of the open set (or preset `index` with no set open).
+    void jumpToScene (int index);
     bool tunerActive() const { return tunerActive_.load(); }
     const Tuner& tuner() const { return tuner_; }
+
+    /// The record/overdub stomp from the UI. Goes through the processor (not
+    /// straight to the looper) because a count-in may have to run first.
+    void requestLoopRecord() noexcept { uiLoopRecord_.fetch_add (1, std::memory_order_acq_rel); }
+    /// Stop/Clear from the UI also abandon a count-in (applied on the audio thread).
+    void requestCountInCancel() noexcept { uiCancelCountIn_.store (true, std::memory_order_release); }
+
+    //------------------------------------------------------------ the click
+    /// Global, saved with the app state rather than the preset: a scene change
+    /// must never switch the click off. MESSAGE THREAD.
+    const ClickSettings& clickSettings() const { return click_; }
+    void setClickSettings (const ClickSettings&);
+    /// True when the device gives the app a second output pair to put the
+    /// click on (standalone with outputs 3+ enabled). Otherwise "separate"
+    /// falls back to the main mix, and the UI says so.
+    /// Standalone output map, in the engine's own channel numbering (the device's
+    /// enabled channels, in order): where the main mix goes, whether it is folded
+    /// to mono, and where the click's own pair starts (-1: no pair).
+    void setOutputRouting (int mainIndex, bool mono, int clickIndex) noexcept
+    {
+        outMain_.store (mainIndex); outMono_.store (mono); outClick_.store (clickIndex);
+    }
+    bool clickSeparateAvailable() const { return clickSeparate_.load (std::memory_order_relaxed); }
+    bool countingIn() const { return countingInUi_.load (std::memory_order_relaxed); }
+    int clickBeat() const { return clickBeatUi_.load (std::memory_order_relaxed); }
 
     Looper& looper() { return looper_; }
     const Looper& looper() const { return looper_; }
@@ -208,6 +281,9 @@ private:
     Rig rig_ { defaultRig() };
     RigLibrary library_;
     StemSeparator stems_;
+    CoverPlayer cover_;
+    std::atomic<int> deviceLatency_ { 0 }, rigLatency_ { 0 };
+    juce::AudioBuffer<float> coverBuf_;
     mutable juce::SpinLock bindingLock_;
     std::vector<Binding> bindings_;
     std::vector<SwitchBinding> switches_;
@@ -232,9 +308,54 @@ private:
     PitchTracker tracker_;
     BassSynth synth_;
     Looper looper_;
+    Metronome metronome_;
     Tuner tuner_;
 
-    juce::AudioBuffer<float> diBuf_, synthBuf_, ampAltBuf_;
+    // the click (message-thread copy; the audio thread reads the atomics)
+    ClickSettings click_;
+    std::atomic<int> clickOutput_ { 0 }, countInBars_ { 0 }, uiLoopRecord_ { 0 };
+    std::atomic<bool> clickSeparate_ { false }, countingInUi_ { false }, uiCancelCountIn_ { false };
+    std::atomic<int> clickBeatUi_ { 0 };
+    double hostPpq_ = -1.0;
+    bool clickWasOn_ = false;             // audio thread: the click's state last block
+    std::atomic<int> outMain_ { 0 }, outClick_ { 2 };
+    std::atomic<bool> outMono_ { false };
+    juce::AudioBuffer<float> mainBuf_;              // audio thread: host beat position, or -1
+    juce::AudioBuffer<float> clickBuf_;
+    /// AUDIO THREAD: a record stomp, from a footswitch (with its sample) or the UI.
+    void handleLoopRecord (int offset) noexcept;
+
+    juce::AudioBuffer<float> diBuf_, synthBuf_, ampAltBuf_, rawBuf_;
+    FixedDelay rawDelay_;
+    juce::SmoothedValue<float> bypassMix_;
+    std::atomic<bool> bypassAll_ { false };
+
+    // noise: the floor tracker, the auto gate and the hum filter (audio thread)
+    std::atomic<bool> gateAuto_ { true };
+    std::atomic<int> humHz_ { 0 };
+    static constexpr int kHumHarmonics = 8;
+    std::array<std::array<Biquad, kHumHarmonics>, 2> hum_;
+    int humSeen_ = -1;
+    // 100 ms windows of input peak; the floor is the quietest of the last 3 s
+    // among windows that are clearly not playing (below -40 dBFS).
+    float winPeak_ = 0.0f;
+    int winCount_ = 0, winLen_ = 4800, floorIdx_ = 0;
+    std::array<float, 30> floorRing_ {};
+    float floorDb_ = -120.0f;
+
+    // edits kept across preset changes (message thread)
+    std::map<juce::String, PendingEdit> edits_;
+    bool overrideActive_ = false;
+    // The set and scene the live rig was loaded FROM. The current scene number
+    // moves before a new scene loads; the live edit belongs to the old one.
+    juce::String loadedSongId_;
+    int loadedScene_ = -1;
+    /// What the live rig was loaded from: the preset, or the scene's override.
+    const Rig* baseRig() const;
+    void stashLiveEdit();
+    void writeEdits() const;
+    void readEdits();
+    bool bypassSeen_ = false;              ///< message thread: last value the UI was told
 
     //------------------------------------------------------------ live state
     Meters meters_;
@@ -272,6 +393,7 @@ private:
     std::atomic<juce::uint32> ccWrite_ { 0 };
     juce::uint32 ccRead_ = 0;
     std::atomic<int> pendingSceneStep_ { 0 };
+    std::atomic<int> pendingSceneJump_ { -1 };    ///< a scene footswitch (A-F), 0-based
     std::atomic<bool> pendingTap_ { false };
 
     double sr_ = 48000.0;

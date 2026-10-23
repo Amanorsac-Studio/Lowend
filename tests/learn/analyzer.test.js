@@ -157,6 +157,79 @@ const nameAt = (res, t) => { const c = res.chords.find(c => t >= c.s && t < c.e)
   check(res.key.root === 0 && res.key.mode === 'major', 'key is still C major with drums (got ' + res.key.name + ')');
 }
 
+//------------------------------------------------------------------ 4b. beats
+// A strummed progression at 100 BPM with a kick on every beat, the bar lines
+// starting on the SECOND detected beat-slot, and chords changing on each bar.
+// The tempo, where the beats fall and which beat is "one" are all known.
+{
+  console.log('Beats');
+  const bpm = 100, beat = 60 / bpm, start = 0.95, bars = 10;   // one pickup beat at 0.35 s
+  const ev = [];
+  const prog = [[48, 60, 64, 67], [45, 57, 60, 64], [41, 53, 57, 60], [43, 55, 59, 62]];
+  for (let b = 0; b < bars; b++)
+    for (const p of prog[b % 4]) ev.push({ p, s: start + b * 4 * beat, e: start + (b + 1) * 4 * beat, a: 0.12 });
+  const pcm = render(ev, start + bars * 4 * beat + 1, 9);
+  let rnd = 3; const noise = () => { rnd = (rnd * 16807) % 2147483647; return rnd / 2147483647 - 0.5; };
+  for (let k = -1; k < bars * 4; k++) {
+    const s0 = Math.floor((start + k * beat) * SR);
+    let ph = 0;
+    for (let i = 0; i < 0.2 * SR && s0 + i < pcm.length; i++) {
+      const f = 55 + 100 * Math.exp(-i / (0.025 * SR));
+      ph += 2 * Math.PI * f / SR;
+      pcm[s0 + i] += 0.5 * Math.sin(ph) * Math.exp(-i / (0.07 * SR)) + 0.08 * noise() * Math.exp(-i / (0.004 * SR));
+    }
+  }
+  const res = analyze(pcm);
+  console.log('  tempo ' + res.tempo + ' BPM, ' + res.beats.length + ' beats, downbeat slot ' + res.downbeat);
+  check(Math.abs(res.tempo - bpm) <= 2, 'tempo is read as 100 BPM (got ' + res.tempo + ')');
+  const truth = []; for (let k = -1; k < bars * 4; k++) truth.push(start + k * beat);
+  const near = truth.filter(t => res.beats.some(b => Math.abs(b - t) < 0.035)).length;
+  check(near >= truth.length * 0.9, 'beats land on the kicks (' + near + '/' + truth.length + ' within 35 ms)');
+  // Which detected beat is the first bar line, and is it a downbeat by the analyser's count?
+  const first = res.beats.findIndex(b => Math.abs(b - start) < 0.035);
+  check(first >= 0 && first % 4 === res.downbeat, 'the bar starts where the chords change (slot ' + (first % 4) + ' vs ' + res.downbeat + ')');
+  check(Array.isArray(res.peaks) && res.peaks.length === 1200 && Math.max(...res.peaks) > 0.1, 'a waveform outline comes back for the whole song');
+}
+
+//------------------------------------------------------------- 4c. harder tempos
+// Strummed guitar with no drums at 90 BPM: the beat has to come from the strums
+// and chord changes alone. And a 100 BPM groove with sixteenth-note hi-hats,
+// the classic double-time trap.
+{
+  console.log('Harder tempos');
+  const strum = (bpm, bars) => {
+    const beat = 60 / bpm, ev = [];
+    const prog = [[43, 55, 59, 62, 67], [50, 57, 62, 66, 69], [40, 52, 55, 59, 64], [48, 52, 55, 60, 64]];
+    for (let k = 0; k < bars * 4; k++) {
+      const ch = prog[Math.floor(k / 4) % 4], t = 0.3 + k * beat;
+      ch.forEach((p, i) => ev.push({ p, s: t + i * 0.012, e: t + beat * 0.95, a: k % 4 === 0 ? 0.12 : 0.08 }));
+    }
+    return render(ev, 0.3 + bars * 4 * beat + 1, 21);
+  };
+  const r1 = analyze(strum(90, 10));
+  console.log('  strummed, no drums: ' + r1.tempo + ' BPM');
+  check(Math.abs(r1.tempo - 90) <= 2, 'strummed guitar alone is read at 90 BPM (got ' + r1.tempo + ')');
+
+  const bpm = 100, beat = 60 / bpm, bars = 10;
+  const pcm = strum(bpm, bars);
+  let rnd = 5; const noise = () => { rnd = (rnd * 16807) % 2147483647; return rnd / 2147483647 - 0.5; };
+  for (let k = 0; k < bars * 16; k++) {                                    // sixteenth hats
+    const s0 = Math.floor((0.3 + k * beat / 4) * SR);
+    for (let i = 0; i < 0.03 * SR && s0 + i < pcm.length; i++) pcm[s0 + i] += 0.12 * noise() * Math.exp(-i / (0.006 * SR));
+  }
+  for (let k = 0; k < bars * 4; k += 2) {                                  // kick on 1 and 3
+    const s0 = Math.floor((0.3 + k * beat) * SR); let ph = 0;
+    for (let i = 0; i < 0.2 * SR && s0 + i < pcm.length; i++) { const f = 55 + 100 * Math.exp(-i / (0.025 * SR)); ph += 2 * Math.PI * f / SR; pcm[s0 + i] += 0.5 * Math.sin(ph) * Math.exp(-i / (0.07 * SR)); }
+  }
+  for (let k = 1; k < bars * 4; k += 2) {                                  // snare on 2 and 4
+    const s0 = Math.floor((0.3 + k * beat) * SR);
+    for (let i = 0; i < 0.12 * SR && s0 + i < pcm.length; i++) pcm[s0 + i] += 0.3 * noise() * Math.exp(-i / (0.03 * SR));
+  }
+  const r2 = analyze(pcm);
+  console.log('  sixteenth hats: ' + r2.tempo + ' BPM');
+  check(Math.abs(r2.tempo - 100) <= 2, 'busy sixteenth hats do not double the tempo (got ' + r2.tempo + ')');
+}
+
 //------------------------------------------------------------------ 5. silence
 {
   console.log('Silence');

@@ -130,6 +130,13 @@ struct Biquad
         const double alpha = std::sin (w) / (2.0 * juce::jmax (0.05f, q));
         norm (alpha, 0.0, -alpha, 1.0 + alpha, -2.0 * cosw, 1.0 - alpha);
     }
+    /// A narrow cut at one frequency (hum and its harmonics).
+    void setNotch (double sr, float freq, float q) noexcept
+    {
+        const double w = omega (sr, freq), cosw = std::cos (w);
+        const double alpha = std::sin (w) / (2.0 * juce::jmax (0.05f, q));
+        norm (1.0, -2.0 * cosw, 1.0, 1.0 + alpha, -2.0 * cosw, 1.0 - alpha);
+    }
     void setBypass() noexcept { b0 = 1; b1 = b2 = a1 = a2 = 0; }
 
 private:

@@ -18,7 +18,7 @@ on:
         type: boolean
         default: false
   push:
-    tags: ["v*"]
+    tags: ["v*", "!v*-beta*"]   # a beta is a tester build, started by hand
 
 concurrency:
   group: release-${{ github.ref }}

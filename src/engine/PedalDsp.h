@@ -144,6 +144,10 @@ public:
         os_ = std::make_unique<juce::dsp::Oversampling<float>> (
                   2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false);
         os_->initProcessing ((size_t) maxBlock_);
+        // The driven path is oversampled and so arrives late; the clean path is
+        // delayed by the same amount, or the two comb-filter when blended.
+        dryDly_.prepare (sr, 20.0f);
+        dryDly_.setDelaySamples ((int) std::round (os_->getLatencyInSamples()));
         reset();
     }
     void reset() override
@@ -214,6 +218,16 @@ public:
             treb_[(size_t) ch].setHighShelf (sr_, 2500.0f, 0.7f, p (4));
         }
 
+        {   // clean path, time-aligned with the oversampled driven path
+            auto* l0 = b.getWritePointer (0);
+            auto* r0 = nCh > 1 ? b.getWritePointer (1) : nullptr;
+            for (int i = 0; i < n; ++i)
+            {
+                dryDly_.push (l0[i], r0 ? r0[i] : l0[i]);
+                l0[i] = dryDly_.read (0);
+                if (r0) r0[i] = dryDly_.read (1);
+            }
+        }
         for (int ch = 0; ch < nCh; ++ch)
         {
             auto* dry = b.getWritePointer (ch);
@@ -235,6 +249,7 @@ private:
     std::array<DcBlocker, 2> dc_;
     std::unique_ptr<juce::dsp::Oversampling<float>> os_;
     juce::AudioBuffer<float> wet_;
+    FixedDelay dryDly_;
 };
 
 //==============================================================================
@@ -352,6 +367,8 @@ public:
         os_ = std::make_unique<juce::dsp::Oversampling<float>> (
                   2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, false);
         os_->initProcessing ((size_t) maxBlock_);
+        dryDly_.prepare (sr, 20.0f);
+        dryDly_.setDelaySamples ((int) std::round (os_->getLatencyInSamples()));
         reset();
     }
     void reset() override
@@ -409,12 +426,13 @@ public:
             const float det = r ? 0.5f * (l[i] + r[i]) : l[i];
             const float g = gateEnv_.process (det) > gateThr ? 1.0f : 0.0f;
             gateGain_ += (g > gateGain_ ? 0.3f : 0.005f) * (g - gateGain_);
+            dryDly_.push (l[i], r ? r[i] : l[i]);           // clean path, aligned with the oversampled fuzz
             for (int ch = 0; ch < nCh; ++ch)
             {
                 auto* dry = b.getWritePointer (ch);
                 const float w = dc_[(size_t) ch].process (tone_[(size_t) ch].process (wet_.getSample (ch, i)))
                               * level * gateGain_;
-                dry[i] = dry[i] * (1.0f - blend) + w * blend;
+                dry[i] = dryDly_.read (ch) * (1.0f - blend) + w * blend;
             }
         }
     }
@@ -426,6 +444,7 @@ private:
     float gateGain_ = 0.0f;
     std::unique_ptr<juce::dsp::Oversampling<float>> os_;
     juce::AudioBuffer<float> wet_;
+    FixedDelay dryDly_;
 };
 
 //==============================================================================
@@ -814,7 +833,7 @@ public:
         // thing the no-allocation rule exists to prevent.
         dry_.setSize (2, juce::jmax (1, maxBlock), false, true, true);
         for (auto& s : slots_)
-            if (s.block) { s.block->prepare (sr, maxBlock); s.mix.reset (sr, 0.02); }
+            if (s.block) { s.block->prepare (sr, maxBlock); s.mix.reset (sr, 0.02); alignDry (s); }
     }
     void reset()
     {
@@ -864,6 +883,7 @@ public:
             }
             if (next[i].block)
                 for (auto& [id, v] : u.params) next[i].block->setParam (id, v);
+            if (next[i].block && sr_ > 0) alignDry (next[i]);
             next[i].bypassed = u.bypassed;
             next[i].mix.reset (sr_ > 0 ? sr_ : 48000.0, 0.02);
             if (rampIn)
@@ -935,8 +955,24 @@ public:
             // whose mix has settled at zero costs nothing to skip except that
             // tail, and skipping it is what keeps a big board cheap. Time
             // blocks (delay/reverb) are the exception: they keep running.
-            if (silent && ! isTimeBlock (s.block->type())) continue;
+            const bool latent = s.dly.delaySamples() > 0;
+            if (silent && ! isTimeBlock (s.block->type()))
+            {
+                // Keep the alignment line fed, so switching on never fades in stale audio.
+                if (latent) for (int i = 0; i < n; ++i) s.dly.push (buffer.getSample (0, i), buffer.getSample (nCh > 1 ? 1 : 0, i));
+                continue;
+            }
             for (int ch = 0; ch < nCh; ++ch) dry_.copyFrom (ch, 0, buffer, ch, 0, n);
+            if (latent)
+            {
+                // The crossfade's clean side waits for the block's own latency, so
+                // switching a pedal on or off is a fade, not a brief comb filter.
+                for (int i = 0; i < n; ++i)
+                {
+                    s.dly.push (dry_.getSample (0, i), dry_.getSample (nCh > 1 ? 1 : 0, i));
+                    for (int ch = 0; ch < nCh; ++ch) dry_.setSample (ch, i, s.dly.read (ch));
+                }
+            }
             s.block->process (buffer, bpm);
             for (int i = 0; i < n; ++i)
             {
@@ -961,7 +997,13 @@ private:
         std::unique_ptr<Block> block;
         bool bypassed = false;
         juce::SmoothedValue<float> mix { 1.0f };
+        FixedDelay dly;                 ///< the clean side of the crossfade, aligned to the block
     };
+    void alignDry (Slot& s) const
+    {
+        s.dly.prepare (sr_ > 0 ? sr_ : 48000.0, 25.0f);
+        s.dly.setDelaySamples (s.block ? s.block->latencySamples() : 0);
+    }
     mutable juce::SpinLock lock_;
     std::vector<Slot> slots_;
     juce::AudioBuffer<float> dry_;

@@ -81,6 +81,10 @@ inline juce::File songsDir()    { return appDataDir().getChildFile ("Songs"); }
 inline juce::File setlistsDir() { return appDataDir().getChildFile ("Setlists"); }
 inline juce::File irDir()       { return appDataDir().getChildFile ("IRs"); }
 inline juce::File loopsDir()    { return appDataDir().getChildFile ("Loops"); }
+/// Presets the player exports, one file each, to keep or to give to someone.
+inline juce::File exportsDir()  { return appDataDir().getChildFile ("Exports"); }
+/// Presets a beta tester has chosen to send back to the studio (see sharePresets).
+inline juce::File betaPresetsDir() { return appDataDir().getChildFile ("Beta Presets"); }
 inline juce::File stageDir()    { return appDataDir().getChildFile ("Stage"); }
 
 //==============================================================================
@@ -106,7 +110,14 @@ struct Rig
 
     ChainState pre;                  ///< pedalboard, in front of the amp
     ChainState post;                 ///< after the cab
+
+    /// What changed at each save, newest first, so a player can see how a
+    /// sound got where it is ("Drive 38 -> 32, cab to 4x12"). Capped; see
+    /// `kRigHistory`.
+    struct Change { juce::int64 time = 0; juce::String text; };
+    std::vector<Change> history;
 };
+constexpr int kRigHistory = 12;
 
 struct Song
 {
@@ -114,6 +125,9 @@ struct Song
     double tempo = 120.0;
     juce::uint32 colour = 0xff2E7DF7;
     juce::StringArray presetIds;     ///< the scenes, in order
+    /// "Saved to this set only": a scene's own version of its preset. The
+    /// preset in the library is untouched; only this set plays the override.
+    std::map<int, Rig> overrides;
 };
 
 struct Setlist
@@ -136,12 +150,15 @@ struct Binding
 enum class SwitchRole : int
 {
     none = 0, presetNext, presetPrev, tapTempo, tuner,
-    loopRecord, loopStop, loopUndo, loopClear, panic, Count
+    loopRecord, loopStop, loopUndo, loopClear, panic,
+    // One switch per scene of the set (A-F), the way a floor unit is laid out.
+    sceneA, sceneB, sceneC, sceneD, sceneE, sceneF, bypassAll, Count
 };
 inline const char* switchRoleId (SwitchRole r)
 {
     static const char* ids[] = { "none", "presetNext", "presetPrev", "tapTempo", "tuner",
-                                 "loopRecord", "loopStop", "loopUndo", "loopClear", "panic" };
+                                 "loopRecord", "loopStop", "loopUndo", "loopClear", "panic",
+                                 "sceneA", "sceneB", "sceneC", "sceneD", "sceneE", "sceneF", "bypassAll" };
     const int i = (int) r;
     return (i >= 0 && i < (int) SwitchRole::Count) ? ids[i] : ids[0];
 }
@@ -392,6 +409,15 @@ inline juce::var rigToVar (const Rig& r)
     set (o, "loop", detail::valuesToVar (r.loop));
     set (o, "pre", detail::chainToVar (r.pre));
     set (o, "post", detail::chainToVar (r.post));
+    juce::Array<juce::var> h;
+    for (auto& c : r.history)
+    {
+        auto e = detail::obj();
+        set (e, "t", (double) c.time);
+        set (e, "x", c.text);
+        h.add (e);
+    }
+    set (o, "history", h);
     return o;
 }
 
@@ -412,7 +438,74 @@ inline Rig rigFromVar (const juce::var& v, juce::StringArray* unresolved = nullp
     detail::valuesFromVar (v.getProperty ("loop", {}), r.loop);
     r.pre = detail::chainFromVar (v.getProperty ("pre", {}), unresolved);
     r.post = detail::chainFromVar (v.getProperty ("post", {}), unresolved);
+    if (auto* h = v.getProperty ("history", {}).getArray())
+        for (auto& e : *h)
+            if ((int) r.history.size() < kRigHistory)
+                r.history.push_back ({ (juce::int64) (double) e.getProperty ("t", 0.0), e.getProperty ("x", {}).toString() });
     return r;
+}
+
+/// A one-line, human description of what differs between two versions of a
+/// rig: the first few changes, in the order a player would name them.
+inline juce::String describeRigChange (const Rig& before, const Rig& after)
+{
+    juce::StringArray bits;
+    auto num = [] (float v) { return std::abs (v - std::round (v)) < 0.05f ? juce::String ((int) std::round (v)) : juce::String (v, 1); };
+    auto section = [&] (const char* what, const std::vector<ParamSpec>& specs, const ParamValues& a, const ParamValues& b)
+    {
+        for (auto& p : specs)
+        {
+            const auto ia = a.find (p.id), ib = b.find (p.id);
+            if (ia == a.end() || ib == b.end() || std::abs (ia->second - ib->second) < 0.01f) continue;
+            if (p.kind == ParamKind::Enum && ! p.choices.empty())
+            {
+                const int k = juce::jlimit (0, (int) p.choices.size() - 1, (int) std::round (ib->second));
+                bits.add (juce::String (what) + (*what ? " " : "") + juce::String (p.label).toLowerCase() + " to " + p.choices[(size_t) k]);
+            }
+            else if (p.kind == ParamKind::Bool)
+                bits.add (juce::String (what) + (*what ? " " : "") + juce::String (p.label).toLowerCase() + (ib->second >= 0.5f ? " on" : " off"));
+            else
+                bits.add (juce::String (what) + (*what ? " " : "") + juce::String (p.label).toLowerCase() + " "
+                          + num (ia->second) + " → " + num (ib->second));
+        }
+    };
+    section ("Amp", ampParams(), before.amp, after.amp);
+    section ("Cab", cabParams(), before.cab, after.cab);
+    auto chain = [&] (const ChainState& a, const ChainState& b)
+    {
+        for (auto& x : b)
+        {
+            const bool had = std::any_of (a.begin(), a.end(), [&x] (const BlockState& y) { return y.type == x.type; });
+            if (! had) bits.add ("Added " + juce::String (blockSpec (x.type).name));
+        }
+        for (auto& y : a)
+        {
+            const bool has = std::any_of (b.begin(), b.end(), [&y] (const BlockState& x) { return x.type == y.type; });
+            if (! has) bits.add ("Removed " + juce::String (blockSpec (y.type).name));
+        }
+        for (auto& x : b)
+            for (auto& y : a)
+                if (x.type == y.type)
+                {
+                    if (x.bypassed != y.bypassed) bits.add (juce::String (blockSpec (x.type).name) + (x.bypassed ? " off" : " on"));
+                    section (blockSpec (x.type).name, blockSpec (x.type).params, y.params, x.params);
+                    break;
+                }
+    };
+    chain (before.pre, after.pre);
+    chain (before.post, after.post);
+    if (before.name != after.name) bits.add ("Renamed to " + after.name);
+    if (bits.isEmpty()) return "Saved";
+    juce::StringArray firstFew;
+    for (int i = 0; i < juce::jmin (2, bits.size()); ++i) firstFew.add (bits[i]);
+    return firstFew.joinIntoString (", ") + (bits.size() > 2 ? " (+" + juce::String (bits.size() - 2) + " more)" : juce::String());
+}
+
+/// Puts a change at the top of a rig's history, keeping it to `kRigHistory`.
+inline void noteChange (Rig& r, const juce::String& text)
+{
+    r.history.insert (r.history.begin(), { juce::Time::currentTimeMillis(), text });
+    if ((int) r.history.size() > kRigHistory) r.history.resize ((size_t) kRigHistory);
 }
 
 inline juce::var songToVar (const Song& s)
@@ -428,6 +521,9 @@ inline juce::var songToVar (const Song& s)
     juce::Array<juce::var> ids;
     for (auto& p : s.presetIds) ids.add (p);
     set (o, "presets", ids);
+    auto ov = detail::obj();
+    for (auto& [k, rig] : s.overrides) ov.getDynamicObject()->setProperty (juce::String (k), rigToVar (rig));
+    set (o, "overrides", ov);
     return o;
 }
 inline Song songFromVar (const juce::var& v)
@@ -440,7 +536,18 @@ inline Song songFromVar (const juce::var& v)
     s.colour = (juce::uint32) (int) v.getProperty ("colour", (int) 0xff2E7DF7);
     if (auto* arr = v.getProperty ("presets", {}).getArray())
         for (auto& e : *arr) s.presetIds.add (e.toString());
+    if (auto* ov = v.getProperty ("overrides", {}).getDynamicObject())
+        for (auto& p : ov->getProperties())
+            s.overrides[p.name.toString().getIntValue()] = rigFromVar (p.value);
     return s;
+}
+
+/// Two rigs SOUND the same: everything but the name, id, order and history.
+inline bool sameSound (const Rig& a, const Rig& b)
+{
+    auto x = a, y = b;
+    for (auto* q : { &x, &y }) { q->id = {}; q->name = {}; q->order = 0; q->history.clear(); q->notes = {}; }
+    return juce::JSON::toString (rigToVar (x), true) == juce::JSON::toString (rigToVar (y), true);
 }
 
 inline juce::var setlistToVar (const Setlist& s)
@@ -510,7 +617,11 @@ public:
 
         for (auto& f : presetsDir().findChildFiles (juce::File::findFiles, false, "*.rig.json"))
         {
+            // A preset is a few kilobytes. Anything far larger is not one of
+            // ours (or is damaged) and is not read at all.
+            if (f.getSize() > kMaxPresetBytes) continue;
             auto v = juce::JSON::parse (f);
+            if (! v.isObject()) continue;
             juce::StringArray missing;
             auto r = rigFromVar (v, &missing);
             if (r.id.isEmpty()) r.id = f.getFileNameWithoutExtension().upToFirstOccurrenceOf (".", false, false);
@@ -532,6 +643,7 @@ public:
         irs_.sort (true);
     }
 
+    static constexpr juce::int64 kMaxPresetBytes = 1 << 20;
     const std::vector<Rig>& presets() const { return presets_; }
     const std::vector<Song>& songs() const { return songs_; }
     const std::vector<Setlist>& setlists() const { return setlists_; }
@@ -679,13 +791,13 @@ inline void RigLibrary::buildFactory()
           { BlockType::noiseGate, BlockType::optoComp, BlockType::bassOd },
           {},
           { { "amp.model", 1 }, { "amp.gain", 62 }, { "amp.sag", 45 }, { "amp.presence", 55 },
-            { "cab.model", 3 }, { "pre.2.drive", 55 }, { "pre.2.blend", 65 } } },
+            { "cab.model", 3 }, { "pre.2.drive", 55 } } },
 
         { "Fuzz Monster", 0xff8B5CF6,
           { BlockType::noiseGate, BlockType::fuzz, BlockType::graphicEq },
           {},
           { { "amp.model", 2 }, { "amp.gain", 55 }, { "cab.model", 3 },
-            { "pre.1.fuzz", 70 }, { "pre.1.blend", 75 }, { "pre.2.g50", 3 }, { "pre.2.g4k", -4 } } },
+            { "pre.1.fuzz", 70 }, { "pre.2.g50", 3 }, { "pre.2.g4k", -4 } } },
 
         { "Motown Flip", 0xffD08B4F,
           { BlockType::noiseGate, BlockType::optoComp },

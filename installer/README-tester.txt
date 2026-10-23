@@ -1,4 +1,4 @@
-LOW END 1.0.0 - TEST BUILD
+LOW END 1.1.0 - TEST BUILD
 Amanorsac Studio · amanorsac.studio
 
 WHAT THIS IS
@@ -7,8 +7,8 @@ not the released product. It needs the test key you were sent, and it stops
 working when that key expires.
 
 INSTALLING
-Windows   Run LowEnd-1.0.0-Tester-Windows.exe and follow the installer.
-macOS     Open LowEnd-1.0.0-Tester-macOS.pkg and follow the installer.
+Windows   Run LowEnd-1.1.0-Tester-Windows.exe and follow the installer.
+macOS     Open LowEnd-1.1.0-Tester-macOS.pkg and follow the installer.
 
 YOUR TEST KEY
 The first time you open Low End it asks for the key. Paste the whole key, which
@@ -34,6 +34,17 @@ YOUR PRESETS AND SETTINGS
   Windows   Documents\Amanorsac Studio\Low End\
   macOS     ~/Documents/Amanorsac Studio/Low End/
 Uninstalling does not delete these.
+
+SENDING YOUR PRESETS BACK
+We would like the presets you make. In Low End, open Library and choose Share
+presets, pick the ones to send, and add your name if you want it credited.
+They are copied to:
+  Windows   Documents\Amanorsac Studio\Low End\Beta Presets\
+  macOS     ~/Documents/Amanorsac Studio/Low End/Beta Presets/
+Send the files from that folder to hello@amanorsac.studio, or attach them to a
+"Preset submission" issue on the beta's GitHub page. Nothing is sent for you.
+By sending a preset you agree that Amanorsac Studio may include it, with your
+credit if you gave one, in a future version of Low End.
 
 TELLING US WHAT YOU FIND
 Write to hello@amanorsac.studio. Say what you did, what you expected and what

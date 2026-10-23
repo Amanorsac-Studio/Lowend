@@ -1,5 +1,9 @@
 # Low End
 
+> **Beta.** Low End 1.1.0 is in testing. Testers: see [`beta/README.md`](beta/README.md)
+> to install it, report problems and send back presets. Changes are in
+> [`CHANGELOG.md`](CHANGELOG.md).
+
 A bass amp, pedalboard and looper for the stage, from **Amanorsac Studio** — plus a
 Learn tab that listens to a song and shows its chords, key and notes, and can split
 it into stems (drums / bass / vocals / other) to mute the bass and play along.
