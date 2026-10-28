@@ -36,12 +36,12 @@ YOUR PRESETS AND SETTINGS
 Uninstalling does not delete these.
 
 SENDING YOUR PRESETS BACK
-We would like the presets you make. In Low End, open Library and choose Share
-presets, pick the ones to send, and add your name if you want it credited.
-They are copied to:
-  Windows   Documents\Amanorsac Studio\Low End\Beta Presets\
-  macOS     ~/Documents/Amanorsac Studio/Low End/Beta Presets/
-Send the files from that folder to hello@amanorsac.studio, or attach them to a
+We would like the presets you make. In Low End, open Library and choose Make a
+pack, pick the presets, and add your name as the author if you want it credited.
+The pack is saved as one .lepack file in:
+  Windows   Documents\Amanorsac Studio\Low End\Packs\
+  macOS     ~/Documents/Amanorsac Studio/Low End/Packs/
+Send that file to hello@amanorsac.studio, or attach them to a
 "Preset submission" issue on the beta's GitHub page. Nothing is sent for you.
 By sending a preset you agree that Amanorsac Studio may include it, with your
 credit if you gave one, in a future version of Low End.

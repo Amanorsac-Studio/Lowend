@@ -9,6 +9,9 @@
 // same level, no colouring.
 #include "plugin/LowEndProcessor.h"
 #include "engine/PedalDsp.h"
+#include "engine/PresetPacks.h"
+#include "engine/NamModel.h"
+#include "NamFixture.h"
 #include <cmath>
 #include <cstdio>
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -192,6 +195,206 @@ int main (int argc, char** argv)
         delete p;
     }
 
+    //------------------------------------------------- dragging a pedal across the amp
+    // The board's drag and drop moves a pedal between the chain in front of the
+    // amp and the one after the cab; it must keep its settings, and must not
+    // move at all when the other side is full.
+    {
+        auto* p = new LowEndProcessor();
+        p->setPlayConfigDetails (2, 2, sr, block);
+        p->prepareToPlay (sr, block);
+        while (! p->rig().pre.empty())  p->removeBlock (false, 0);
+        while (! p->rig().post.empty()) p->removeBlock (true, 0);
+        p->addBlock (false, BlockType::tubeOd);
+        p->addBlock (false, BlockType::noiseGate);
+        p->setPath ("pre.0.bypass", 1.0f, false);
+        const auto drive = p->rig().pre[0];
+        check (p->transferBlock (false, 0, true, 0), "a pedal moves from in front of the amp to after it");
+        check (p->rig().pre.size() == 1 && p->rig().post.size() == 1 && p->rig().post[0].type == BlockType::tubeOd,
+               "it leaves one side and arrives on the other");
+        check (p->rig().post[0].bypassed && p->rig().post[0].params == drive.params, "with its settings and on/off state");
+        for (int i = 0; i < kMaxPostBlocks - 1; ++i) p->addBlock (true, BlockType::flanger);
+        check (! p->transferBlock (false, 0, true, 0) && p->rig().pre.size() == 1, "nothing moves when the other side is full");
+        delete p;
+    }
+
+    //------------------------------------------------- the factory library and preset packs
+    {
+        auto* p = new LowEndProcessor();
+        p->setPlayConfigDetails (2, 2, sr, block);
+        p->prepareToPlay (sr, block);
+        auto& lib = p->library();
+        const int factoryCount = (int) factoryPresets().size();
+        auto countFactory = [&lib] { int n = 0; for (auto& r : lib.presets()) if (r.factoryKey.isNotEmpty()) ++n; return n; };
+        check (factoryCount >= 100 && countFactory() == factoryCount, "the factory library is installed, every preset with its key (" + juce::String (countFactory()) + ")");
+        lib.deletePreset (lib.presets()[3].id);
+        lib.generateFactoryIfNeeded();
+        check (countFactory() == factoryCount - 1, "a factory preset the player deleted stays deleted, and nothing doubles");
+
+        juce::StringArray ids;
+        for (int i = 0; i < 5; ++i) ids.add (lib.presets()[(size_t) i].id);
+        packs::Info info; info.name = "Test Pack"; info.author = "A Tester";
+        const auto file = packs::write (lib, info, ids);
+        packs::Pack pk;
+        check (file.existsAsFile() && packs::fromText (file.loadFileAsString(), pk).wasOk() && pk.presets.size() == 5, "a pack is written and read back");
+        const auto before = lib.presets().size();
+        check (packs::install (lib, pk) == 5 && lib.presets().size() == before + 5, "installing a pack adds its presets as new ones");
+        packs::install (lib, pk);
+        check (lib.presets().size() == before + 5, "installing the same pack again replaces it rather than doubling it");
+        check (packs::remove (lib, pk.info.id) == 5 && lib.presets().size() == before, "removing a pack takes its presets out");
+
+        // A hostile pack: an absurd value, and far more pedals than the board holds.
+        auto v = juce::JSON::parse (file.loadFileAsString());
+        auto first = (*v.getProperty ("presets", {}).getArray())[0];
+        first.getProperty ("amp", {}).getDynamicObject()->setProperty ("gain", 1.0e9);
+        juce::Array<juce::var> chain;
+        for (int i = 0; i < 40; ++i)
+        {
+            auto* b = new juce::DynamicObject(); auto* prm = new juce::DynamicObject();
+            prm->setProperty ("drive", 500.0);
+            b->setProperty ("type", "tubeOd"); b->setProperty ("params", juce::var (prm));
+            chain.add (juce::var (b));
+        }
+        first.getDynamicObject()->setProperty ("pre", chain);
+        packs::Pack bad;
+        const bool readBad = packs::fromText (juce::JSON::toString (v), bad).wasOk();
+        check (readBad && getPath (bad.presets[0], "amp.gain") <= 100.0f && bad.presets[0].pre.size() == (size_t) kMaxPreBlocks
+               && bad.presets[0].pre[0].params.at ("drive") <= 100.0f, "a pack's values are clamped and its chains cut to the board");
+        v.getDynamicObject()->setProperty ("product", "nope");
+        check (packs::fromText (juce::JSON::toString (v), bad).failed(), "a pack for another product is refused");
+        check (packs::fromText ("{}", bad).failed() && packs::fromText ("not json", bad).failed(), "a file that is not a pack is refused");
+        delete p;
+    }
+
+    //------------------------------------------------- upgrading from the first factory library
+    // A player from before keys existed: the old marker, three of the first
+    // presets kept (no key yet) and the others deleted. The update must tag the
+    // three, add every new preset, and bring none of the deleted ones back.
+    {
+        auto up = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("LowEndUpgrade-" + juce::Uuid().toDashedString());
+        up.createDirectory();
+        setEnv ("LOWEND_DATA_DIR", up.getFullPathName());
+        int v1Count = 0;
+        for (auto& f : factoryPresets()) if (juce::String (f.key).startsWith ("v1-")) ++v1Count;
+        RigLibrary old;
+        int kept = 0;
+        for (size_t i = 0; i < factoryPresets().size() && kept < 3; ++i)
+            if (juce::String (factoryPresets()[i].key).startsWith ("v1-"))
+            {
+                auto r = makeFactoryRig (factoryPresets()[i], (int) i);
+                r.factoryKey = {}; r.category = {};
+                old.savePreset (r);
+                ++kept;
+            }
+        appDataDir().getChildFile ("factory-v1.txt").replaceWithText ("Low End factory content v1\n");
+        RigLibrary lib;
+        lib.generateFactoryIfNeeded();
+        lib.scan();
+        int tagged = 0;
+        for (auto& r : lib.presets()) if (r.factoryKey.startsWith ("v1-") && r.category.isNotEmpty()) ++tagged;
+        check (tagged == 3, "the kept presets from the first library get their key and category");
+        check ((int) lib.presets().size() == 3 + (int) factoryPresets().size() - v1Count,
+               "every new factory preset arrives and no deleted one comes back (" + juce::String ((int) lib.presets().size()) + ")");
+        lib.generateFactoryIfNeeded();
+        lib.scan();
+        check ((int) lib.presets().size() == 3 + (int) factoryPresets().size() - v1Count, "a second launch adds nothing");
+        setEnv ("LOWEND_DATA_DIR", temp.getFullPathName());
+    }
+
+    //------------------------------------------------- Your Amp: a NAM capture in the rig
+    // A stranger's .nam file is refused with a reason when it is not a capture;
+    // a real one loads off the audio thread, runs at the session's rate (resampled
+    // when that is not the capture's own), and takes the built-in amp out.
+    {
+        juce::String err;
+        check (! NamModel::check ("hello", err) && err.isNotEmpty(), "a file that is not JSON is refused: " + err);
+        check (! NamModel::check ("{\"a\":1}", err) && err.isNotEmpty(), "JSON that is not a capture is refused: " + err);
+        NamModel::Info info;
+        const bool read = NamModel::check (kTestCapture, err, &info);
+        check (read && info.name == "Test Model" && info.hasLoudness, "a capture is read, with its name and loudness" + (read ? juce::String() : ": " + err));
+
+        auto render = [] (NamModel& m, double rate, double seconds)
+        {
+            const int n = (int) (rate * seconds), blk = 256;
+            std::vector<float> out; out.reserve ((size_t) n);
+            std::vector<float> b ((size_t) blk);
+            for (int at = 0; at < n; at += blk)
+            {
+                for (int i = 0; i < blk; ++i) b[(size_t) i] = 0.3f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * 220.0 * (at + i) / rate);
+                m.process (b.data(), blk);
+                out.insert (out.end(), b.begin(), b.end());
+            }
+            return out;
+        };
+        auto finite = [] (const std::vector<float>& x) { for (auto v : x) if (! std::isfinite (v)) return false; return true; };
+        auto m48 = NamModel::fromText (kTestCapture, "x", 48000.0, 256, err);
+        auto m44 = NamModel::fromText (kTestCapture, "x", 44100.0, 256, err);
+        check (m48 && m44, "it builds for a session at 48 kHz and at 44.1 kHz" + (m48 && m44 ? juce::String() : ": " + err));
+        if (m48 && m44)
+        {
+            check (m48->latencySamples() == 0 && m44->latencySamples() > 0, "only the 44.1 kHz session pays for resampling ("
+                   + juce::String (m44->latencySamples()) + " samples)");
+            auto a = render (*m48, 48000.0, 1.0), b = render (*m44, 44100.0, 1.0);
+            const std::vector<float> ta (a.begin() + 24000, a.end()), tb (b.begin() + 22050, b.end());
+            const double ra = rms (ta), rb = rms (tb);
+            check (finite (a) && finite (b) && ra > 1.0e-4, "it plays a note (" + juce::String (20.0 * std::log10 (ra + 1e-12), 1) + " dBFS)");
+            check (std::abs (20.0 * std::log10 ((rb + 1e-12) / (ra + 1e-12))) < 1.5,
+                   "the same note at 44.1 kHz comes out at the same level ("
+                   + juce::String (20.0 * std::log10 ((rb + 1e-12) / (ra + 1e-12)), 2) + " dB)");
+            check (purity (tb, 220.0, 44100.0) > 0.5 * purity (ta, 220.0, 48000.0), "and the resampling adds no rubbish of its own");
+        }
+
+        // In the rig: the file goes in the Amp Captures folder, the pedal names it by key.
+        namDir().createDirectory();
+        auto file = namDir().getChildFile ("Test Amp.nam");
+        file.replaceWithText (kTestCapture);
+        LowEndProcessor p;
+        p.setPlayConfigDetails (2, 2, sr, block);
+        p.prepareToPlay (sr, block);
+        auto play = [&p] (int blocks)
+        {
+            juce::MidiBuffer midi; juce::AudioBuffer<float> b (2, block);
+            std::vector<float> out;
+            for (int k = 0; k < blocks; ++k)
+            {
+                for (int i = 0; i < block; ++i)
+                {
+                    const float v = 0.2f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * 220.0 * (k * block + i) / sr);
+                    b.setSample (0, i, v); b.setSample (1, i, v);
+                }
+                p.processBlock (b, midi);
+                for (int i = 0; i < block; ++i) out.push_back (b.getSample (0, i));
+            }
+            return out;
+        };
+        Rig r = p.rig();
+        r.pre.clear(); r.post.clear();
+        // the pedal with a capture that is not there: the amp is out, nothing in its place
+        auto st = defaultBlockState (BlockType::nam);
+        st.params["capture"] = 12345.0f;
+        r.pre = { st };
+        p.loadRig (r, false);
+        juce::Thread::sleep (300);
+        const auto withAmp = play (200);
+        st.params["capture"] = (float) NamModel::keyFor (file.getFileName());
+        r.pre = { st };
+        p.loadRig (r, false);
+        // the capture loads on its own thread; give it a moment, as a player would
+        std::vector<float> yours;
+        for (int tries = 0; tries < 60; ++tries)
+        {
+            yours = play (40);
+            if (rms (yours) > 0 && std::abs (rms (yours) - rms (std::vector<float> (withAmp.end() - (long) yours.size(), withAmp.end()))) > 1.0e-4) break;
+            juce::Thread::sleep (50);
+        }
+        yours = play (200);
+        const std::vector<float> tailA (withAmp.begin() + 100 * block, withAmp.end()), tailY (yours.begin() + 100 * block, yours.end());
+        check (finite (yours) && rms (tailY) > 1.0e-4, "the Your Amp pedal plays through the rig");
+        check (std::abs (rms (tailY) - rms (tailA)) > 1.0e-4, "and what it plays is the capture, not the signal passing straight through");
+        p.setPath ("pre.0.capture", 0.0f, false);
+        file.deleteFile();
+    }
+
     //------------------------------------------------- every factory preset, rendered
     // A steady note through each preset, then silence. Three numbers per preset:
     // energy that is not the note or its harmonics (aliasing, buzz, ring-mod
@@ -236,6 +439,14 @@ int main (int argc, char** argv)
                     if (t > 3.6) quiet.push_back (v);   // two seconds after the note: every release and tail is over
                 }
             }
+            // A Bow in Solo mode plays the note on a string with a player's vibrato, so
+            // its harmonics swing by up to a third of a semitone on purpose: widen
+            // what counts as "the note" by that much, and no more.
+            double vibTol = 0.0;
+            for (const auto* chain : { &r.pre, &r.post })
+                for (const auto& bs : *chain)
+                    if (bs.type == BlockType::bow && ! bs.bypassed)
+                        if (auto it = bs.params.find ("mode"); it != bs.params.end() && it->second >= 0.5f) vibTol = 0.02;
             std::vector<float> w ((size_t) N * 2, 0.0f);
             for (int i = 0; i < N && i < (int) tone.size(); ++i)
                 w[(size_t) i] = tone[(size_t) i] * (float) (0.5 - 0.5 * std::cos (2.0 * juce::MathConstants<double>::pi * i / N));
@@ -247,7 +458,7 @@ int main (int argc, char** argv)
                 // The grid is the note two octaves down: octave pedals and the synth's sub add
                 // sub-octaves on purpose, and those are part of the note, not an artefact.
                 const double g = f0 / 4.0, k = hz / g, near = std::abs (k - std::round (k)) * g;
-                const bool isH = near < 4.0 && std::round (k) >= 1;
+                const bool isH = near < 4.0 + vibTol * hz && std::round (k) >= 1;
                 (isH ? harm : inh) += e;
                 if (! isH && e > peakE) { peakE = e; peakHz = hz; }
             }

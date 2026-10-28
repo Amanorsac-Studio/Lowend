@@ -6,8 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        In Low End, open **Library › Share presets**, choose the presets and add your name if you want it credited.
-        They are copied to `Documents/Amanorsac Studio/Low End/Beta Presets/`. Attach the `.rig.json` files from that folder below (or a zip of them).
+        In Low End, open **Library › Make a pack**, choose the presets and add your name as the author if you want it credited.
+        The pack is saved as one `.lepack` file in `Documents/Amanorsac Studio/Low End/Packs/`. Attach it below.
   - type: input
     id: credit
     attributes:
@@ -16,8 +16,8 @@ body:
   - type: textarea
     id: presets
     attributes:
-      label: Preset files
-      description: Drag the .rig.json files (or a zip) here.
+      label: Preset pack
+      description: Drag the .lepack file here (older .rig.json files are fine too).
     validations:
       required: true
   - type: textarea

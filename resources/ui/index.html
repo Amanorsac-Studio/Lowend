@@ -133,32 +133,116 @@ main{position:relative;height:calc(100% - var(--hdr) - var(--tabs));overflow:hid
 #view-rig.on{grid-template-columns:minmax(0,1.62fr) minmax(290px,1fr);gap:14px}
 .rigL{display:grid;grid-template-rows:auto minmax(0,1fr);gap:14px;min-height:0}
 .rigR{display:grid;grid-template-rows:minmax(0,1fr) auto auto;gap:12px;min-height:0}
-/* pedalboard: painted stompboxes on one cable, scaled to fit, never scrolled */
-.board{padding:12px 12px 10px}
-.boardfit{position:relative;overflow:hidden}
-.chain{position:relative;display:flex;align-items:center;gap:9px;transform-origin:0 50%;width:max-content}
-.chain::before{content:"";position:absolute;left:14px;right:14px;top:50%;height:3px;border-radius:2px;background:#0b0a09;box-shadow:0 1px 0 rgba(255,255,255,.04)}
-.jack{position:relative;z-index:1;flex:none;width:34px;height:96px;border-radius:9px;border:1px solid var(--line);background:var(--well);display:grid;place-items:center}
+/* pedalboard: a real board (ribbed deck, rails, patch cables) carrying enclosures
+   drawn in layers - paint, the metal's finish, our printed artwork, hardware.
+   Scaled to fit, never scrolled. */
+.board{position:relative;padding:12px 12px 10px}
+.boardfit{position:relative;overflow:hidden;border-radius:12px;
+  background:linear-gradient(180deg,rgba(255,255,255,.05),transparent 14%,transparent 86%,rgba(0,0,0,.45)),repeating-linear-gradient(90deg,#19191b 0 2px,#212124 2px 4px);
+  box-shadow:inset 0 0 0 1px #2c2c30,inset 0 2px 0 #38383d,inset 0 -2px 0 #0c0c0d}
+.boardfit::before,.boardfit::after{content:"";position:absolute;left:10px;right:10px;height:6px;border-radius:3px;background:linear-gradient(#3c3c41,#222225);z-index:0;pointer-events:none}
+.boardfit::before{top:6px}.boardfit::after{bottom:6px}
+.chain{position:relative;display:flex;align-items:center;gap:16px;padding:24px 14px 22px;transform-origin:0 50%;width:max-content}
+.chain .brk{display:none}
+.chain.two{flex-wrap:wrap;row-gap:30px}
+.chain.two .brk{display:block;flex-basis:100%;height:0}
+.cables{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;z-index:0}
+.cables .cb{fill:none;stroke:#09090a;stroke-width:6;stroke-linecap:round}
+.cables .cs{fill:none;stroke:#2e2e33;stroke-width:2.2;stroke-linecap:round}
+.jack{position:relative;z-index:1;flex:none;width:34px;height:110px;border-radius:9px;border:1px solid #2f2f33;background:linear-gradient(90deg,#26262a,#18181a);display:grid;place-items:center}
 .jack span{writing-mode:vertical-rl;transform:rotate(180deg);font-family:var(--font-num);font-size:10px;letter-spacing:.16em;color:var(--faint)}
-.ped{position:relative;z-index:1;flex:none;width:86px;height:132px;border-radius:11px;padding:9px 8px 8px;display:flex;flex-direction:column;align-items:center;gap:5px;
-  background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0) 38%,rgba(0,0,0,.16)),var(--c);color:var(--t);text-align:center;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.28),inset 0 -2px 0 rgba(0,0,0,.25),0 6px 14px -6px rgba(0,0,0,.7);transition:transform .25s cubic-bezier(.16,1,.3,1),filter .25s}
-.ped:active{transform:translateY(1px) scale(.98)}
-.ped.off{filter:saturate(.18) brightness(.55)}
-.ped.sel{outline:2px solid var(--amber);outline-offset:3px}
-.ped .pk{display:flex;gap:2px;min-height:30px}
-.ped .pk svg{width:30px;height:30px}
-.ped .pn{font-weight:800;font-size:11px;line-height:1.08;letter-spacing:.01em;min-height:24px;display:flex;align-items:center}
-.ped .pled{width:7px;height:7px;border-radius:50%;background:rgba(0,0,0,.35);margin-top:auto}
-.ped:not(.off) .pled{background:#ff6b4a;box-shadow:0 0 0 2px rgba(255,107,74,.22),0 0 8px rgba(255,107,74,.7)}
-.ped .psw{width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#e9e6e1,#8c8781 60%,#5b5752);box-shadow:0 2px 3px rgba(0,0,0,.45),inset 0 -1px 0 rgba(0,0,0,.3);flex:none}
-.ampmini{position:relative;z-index:1;flex:none;width:104px;height:132px;border-radius:11px;overflow:hidden;background:#1c1917;border:1px solid #2f2a25;display:flex;flex-direction:column;padding:6px;gap:5px;box-shadow:0 6px 14px -6px rgba(0,0,0,.7)}
+
+.ped{--c:#5d636b;--t:#f6efe4;position:relative;z-index:1;flex:none;width:112px;height:186px;border-radius:10px;padding:16px 8px 0;
+  display:flex;flex-direction:column;align-items:center;color:var(--t);text-align:center;cursor:grab;touch-action:none;
+  background:
+    radial-gradient(130% 70% at 22% -4%,rgba(255,255,255,.34),transparent 55%),
+    linear-gradient(172deg,rgba(255,255,255,.10),transparent 38%,rgba(0,0,0,.30)),
+    var(--c);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 1px 0 0 rgba(255,255,255,.14),inset -1px 0 0 rgba(0,0,0,.22),inset 0 -3px 0 rgba(0,0,0,.3),
+    0 2px 0 rgba(0,0,0,.6),0 14px 18px -8px rgba(0,0,0,.85);
+  transition:transform .25s cubic-bezier(.16,1,.3,1),filter .25s,opacity .2s}
+.ped.w{width:150px}
+.ped.off{filter:saturate(.3) brightness(.62)}
+.ped.sel{outline:2px solid var(--amber);outline-offset:4px}
+.ped.lift{opacity:.25}
+/* the metal's finish: an SVG texture blended into the paint */
+.ped .tex{position:absolute;inset:0;border-radius:inherit;pointer-events:none;background-size:160px 160px}
+.fin-powder .tex{opacity:.55;mix-blend-mode:overlay;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.15' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+.fin-hammer .tex{opacity:.7;mix-blend-mode:overlay;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='h'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.085' numOctaves='3' stitchTiles='stitch'/%3E%3CfeDiffuseLighting lighting-color='%23fff' surfaceScale='3.2'%3E%3CfeDistantLight azimuth='225' elevation='52'/%3E%3C/feDiffuseLighting%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23h)'/%3E%3C/svg%3E")}
+.fin-brushed .tex{opacity:.6;mix-blend-mode:overlay;background-image:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.22) 48%,transparent 62%),url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.004 0.95' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23b)'/%3E%3C/svg%3E");background-size:100% 100%,160px 160px}
+.fin-sparkle .tex{opacity:.75;mix-blend-mode:screen;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.9' numOctaves='1' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='discrete' tableValues='0 0 0 0 0 0 .9'/%3E%3CfeFuncG type='discrete' tableValues='0 0 0 0 0 0 .9'/%3E%3CfeFuncB type='discrete' tableValues='0 0 0 0 0 0 .9'/%3E%3CfeFuncA type='discrete' tableValues='0 0 0 0 0 0 1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)'/%3E%3C/svg%3E")}
+.fin-wood .tex{opacity:.8;mix-blend-mode:overlay;background-size:100% 100%,220px 220px;background-image:linear-gradient(100deg,transparent 35%,rgba(255,230,190,.25) 50%,transparent 62%),url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.34' numOctaves='3' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23w)'/%3E%3C/svg%3E")}
+/* screws, side jacks */
+.ped .sc{position:absolute;width:6px;height:6px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#f2f2f2,#8a8a8a 60%,#4a4a4a);box-shadow:0 1px 1px rgba(0,0,0,.55)}
+.ped .sc:nth-of-type(2){left:6px;top:6px}.ped .sc:nth-of-type(3){right:6px;top:6px}.ped .sc:nth-of-type(4){left:6px;bottom:6px}.ped .sc:nth-of-type(5){right:6px;bottom:6px}
+.ped .jk{position:absolute;top:26px;width:7px;height:17px;border-radius:2px;background:linear-gradient(#d6d6d6,#7d7d7d 60%,#5a5a5a)}
+.ped .jk.l{left:-6px}.ped .jk.r{right:-6px}
+/* knobs: knurled caps you turn on the board; the highlight stays put while the cap turns */
+.ped .pk{position:relative;display:flex;flex-wrap:nowrap;justify-content:center;gap:4px;min-height:46px}
+.pkn{display:grid;justify-items:center;gap:3px;width:28px;cursor:ns-resize;touch-action:none}
+.pkn .kb{position:relative;width:26px;height:26px;border-radius:50%;box-shadow:0 3px 3px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.55)}
+.pkn .cap{position:absolute;inset:0;border-radius:50%;transform:rotate(var(--a));
+  background:radial-gradient(circle,#262626 0 50%,transparent 52%),repeating-conic-gradient(#0e0e0e 0 7deg,#3b3b3b 7deg 14deg)}
+.pkn .cap::after{content:"";position:absolute;left:50%;top:2px;width:2.5px;height:10px;margin-left:-1.25px;border-radius:2px;background:#f3eee4}
+.pkn .gl{position:absolute;inset:0;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 36% 28%,rgba(255,255,255,.38),transparent 55%)}
+.ped:not(.lite) .pkn .cap{background:radial-gradient(circle,#ece5d6 0 50%,transparent 52%),repeating-conic-gradient(#bdb4a2 0 7deg,#f4efe4 7deg 14deg)}
+.ped:not(.lite) .pkn .cap::after{background:#1d1a16}
+.pkn b{font:700 6.5px/1 var(--font-num);letter-spacing:.04em;opacity:.85;white-space:nowrap}
+/* LED in its bezel, printed artwork, name */
+.ped .pled{width:9px;height:9px;border-radius:50%;margin-top:8px;background:#4a1810;box-shadow:0 0 0 2px rgba(0,0,0,.35),inset 0 -1px 2px rgba(0,0,0,.5)}
+.ped:not(.off) .pled{background:radial-gradient(circle at 40% 35%,#ffd2c4,#ff4f2e 55%,#c42a12);box-shadow:0 0 0 2px rgba(0,0,0,.35),0 0 8px 2px rgba(255,79,46,.65)}
+.ped .art{width:46px;height:18px;margin-top:6px;opacity:.55}
+.ped .pn{font-weight:800;font-style:italic;font-size:13.5px;line-height:1.02;letter-spacing:-.01em;margin-top:2px;min-height:28px;display:flex;align-items:center;text-shadow:0 1px 0 rgba(0,0,0,.18)}
+.ped.lite .pn{text-shadow:0 1px 0 rgba(255,255,255,.3)}
+.ped .pft{margin-top:auto;padding-bottom:14px;display:grid;place-items:center}
+/* the footswitch: chrome cap on a nut */
+.ped .psw{width:34px;height:34px;border-radius:50%;flex:none;background:radial-gradient(circle at 42% 34%,#ffffff,#b9b9b9 42%,#6a6a6a 72%,#9a9a9a);
+  box-shadow:0 0 0 3px #77736d,0 0 0 4px rgba(0,0,0,.45),0 4px 6px rgba(0,0,0,.6),inset 0 -2px 3px rgba(0,0,0,.35)}
+.ped .psw:active{transform:translateY(1px) scale(.96)}
+.ped.ghost{position:fixed;z-index:200;pointer-events:none;transform-origin:0 0;cursor:grabbing;filter:drop-shadow(0 18px 18px rgba(0,0,0,.6))}
+.ped.ghost.bin{filter:drop-shadow(0 0 0 #c7392a) brightness(.6) sepia(.6) hue-rotate(-30deg)}
+.dropmark{position:absolute;top:10px;height:100px;width:4px;margin-left:-2px;border-radius:2px;background:var(--amber);box-shadow:0 0 12px rgba(59,130,246,.8);opacity:0;transition:opacity .12s;pointer-events:none;z-index:3}
+.dropmark.on{opacity:1}
+.boardbin{position:absolute;right:14px;top:-14px;padding:7px 14px;border-radius:9px;background:#3a1612;color:#ffab9c;font-size:12px;border:1px solid #6b2a20;opacity:0;transform:translateY(4px);transition:opacity .15s,transform .15s;pointer-events:none;z-index:5}
+.boardbin.on{opacity:1;transform:none}
+.boardbin.hot{background:#c7392a;color:#fff}
+body.dragging,body.dragging *{cursor:grabbing!important}
+.ampmini{position:relative;z-index:1;flex:none;width:104px;height:150px;border-radius:11px;overflow:hidden;background:#1c1917;border:1px solid #2f2a25;display:flex;flex-direction:column;padding:6px;gap:5px;box-shadow:0 10px 16px -6px rgba(0,0,0,.8)}
 .ampmini .pl{height:40px;border-radius:5px;background:var(--p);box-shadow:0 0 0 1.5px var(--pp);display:flex;align-items:center;justify-content:space-around;padding:0 5px}
 .ampmini .pl i{width:9px;height:9px;border-radius:50%;background:var(--k)}
 .ampmini .gr{flex:1;border-radius:5px;background:var(--g)}
 .ampmini b{position:absolute;left:0;right:0;bottom:8px;text-align:center;font-weight:800;font-style:italic;font-size:12px;color:#f0e2c4;text-shadow:0 1px 2px rgba(0,0,0,.85)}
-.addp{position:relative;z-index:1;flex:none;width:44px;height:132px;border-radius:11px;border:1px dashed var(--line2);background:var(--s1);color:var(--faint);font-size:22px}
+.addp{position:relative;z-index:1;flex:none;width:44px;height:186px;border-radius:11px;border:1px dashed var(--line2);background:rgba(28,25,23,.7);color:var(--faint);font-size:22px}
 .boardhint{display:flex;justify-content:space-between;margin-top:8px}
+.boardhint .cap{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.boardhint{gap:12px}
+
+/* pedal browser: opens over the amp, in the same grid cell */
+.rigL>.amp,.rigL>.pbrowse{grid-row:2;grid-column:1}
+.pbrowse{z-index:6;min-height:0;display:grid;grid-template-columns:minmax(220px,30%) minmax(0,1fr);border-radius:18px;background:#171513;border:1px solid var(--line);
+  box-shadow:0 -16px 40px rgba(0,0,0,.55);opacity:0;transform:translateY(14px);visibility:hidden;pointer-events:none;transition:opacity .22s,transform .3s cubic-bezier(.16,1,.3,1),visibility 0s .3s;overflow:hidden}
+.pbrowse.on{opacity:1;transform:none;visibility:visible;pointer-events:auto;transition:opacity .22s,transform .3s cubic-bezier(.16,1,.3,1)}
+.pbv{display:grid;grid-template-rows:auto minmax(0,1fr) auto auto auto;gap:6px;padding:16px;border-right:1px solid var(--line);min-height:0}
+.pbstage{display:grid;place-items:center;min-height:0}
+.pbstage{overflow:hidden}
+.pbstage .ped{cursor:default}
+.pbv h3{margin:4px 0 0;font-size:20px}
+.pbv p{margin:0;color:var(--muted);font-size:13px;line-height:1.45}
+.pbgo{display:flex;gap:10px;align-items:center;margin-top:8px}
+.pbside{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:10px;padding:14px 16px;min-width:0;min-height:0}
+.pbbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-width:0}
+.pbbar .chip{padding:5px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);font-size:12px}
+.pbbar .chip.on{background:var(--s2,#1E2330);color:var(--text);border-color:var(--line2)}
+.pbq{margin-left:auto;min-width:0;width:150px;background:var(--well);border:1px solid var(--line);border-radius:8px;padding:7px 10px;color:var(--text)}
+.pbside .pager{min-height:28px;margin-top:0}
+.pbgrid{display:grid;align-content:start;gap:8px;min-height:0;overflow:hidden}
+.pbt{display:grid;justify-items:center;align-content:start;gap:4px;padding:5px 2px;font-size:11.5px!important;border-radius:10px;color:var(--muted);font-size:12px;cursor:grab;touch-action:none}
+.pbt:hover,.pbt.on{background:#171B24;color:var(--text)}
+.pbt .mini{width:48px;height:79px;display:block}
+.pbt .mini .ped{transform:scale(.42);transform-origin:0 0;cursor:inherit}
+.pbt .mini .ped.w{margin-left:-7px}
+.pbt .nm{line-height:1.15}
+.pbt.used .nm::after{content:"on board";display:block;color:var(--amber);font-size:9.5px}
 
 /* the amp: a real faceplate, filling the rest of the column */
 .amp{border-radius:18px;padding:12px;display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px;min-height:0;
@@ -191,6 +275,7 @@ main{position:relative;height:calc(100% - var(--hdr) - var(--tabs));overflow:hid
 .grille::before{content:"";position:absolute;inset:0;background:radial-gradient(120% 140% at 50% 0%,rgba(255,220,170,.08),transparent 60%)}
 .plate{position:absolute;left:50%;top:12px;transform:translateX(-50%);padding:3px 14px;border-radius:5px;background:linear-gradient(180deg,#e8dcc0,#b9a57d);
   box-shadow:0 2px 4px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.5);font-weight:800;font-style:italic;font-size:14px;color:#3a2a1c;white-space:nowrap}
+.plate.in{position:static;transform:none;margin-left:auto;font-size:12px;padding:2px 10px;flex:none}
 .tray{position:absolute;left:10px;right:10px;bottom:10px;display:flex;align-items:center;gap:6px;padding:7px;border-radius:12px;flex-wrap:wrap;
   background:rgba(22,18,15,.6);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);
   border:1px solid rgba(255,255,255,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
@@ -384,6 +469,75 @@ main{position:relative;height:calc(100% - var(--hdr) - var(--tabs));overflow:hid
 .arrow{flex:none;width:10px;height:2px;background:var(--line2);border-radius:1px}
 .libgrid{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;min-height:0}
 .libgrid h3{margin:0 0 9px;font-weight:700;font-size:14px}
+/* categories and where a preset came from */
+.libfilters{display:flex;flex-direction:column;gap:7px;margin-bottom:8px}
+.cchips{display:flex;flex-wrap:wrap;gap:5px}
+.cchip{padding:4px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);font-size:12px;line-height:1.3}
+.cchip i{font-style:normal;font-family:var(--font-num);font-size:9.5px;color:var(--faint);margin-left:4px}
+.cchip.on{background:var(--s2,#1E2330);color:var(--ink);border-color:var(--line2)}
+.csrc{display:flex;align-items:center;gap:8px}
+.csrc select{flex:1;min-width:0;background:var(--well);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:inherit;font-size:12.5px}
+.li .k.pk,.ptags .k.pk{color:var(--amber);border-color:var(--amber-deep,#6a4f25);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ptags{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.ptags .k{font-family:var(--font-num);font-size:9.5px;letter-spacing:.1em;color:var(--faint);border:1px solid var(--line2);border-radius:5px;padding:2px 6px}
+.pcover{position:relative;flex:none;display:block;width:40px;height:40px;border-radius:9px;overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 5px 10px rgba(0,0,0,.45)}
+.pcover::after{content:"";position:absolute;inset:0;background:radial-gradient(120% 80% at 20% 0,rgba(255,255,255,.35),transparent 60%)}
+.pcover b{position:absolute;left:6px;bottom:3px;z-index:1;font:800 italic 15px/1 Georgia,serif;color:rgba(255,255,255,.6)}
+.pcover.big{width:104px;height:104px;border-radius:16px}.pcover.big b{font-size:28px;left:10px;bottom:8px}
+.li.pli{min-height:56px}
+/* a preset in the Library: the same rig as the Rig page, with its sets and history beside it */
+.libbody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:14px;margin-top:12px}
+.librig{min-height:0;height:100%}
+/* In the Library the rig shares the page with its details: on a narrower window the
+   cab tray keeps to one row (the mic is still under More) so the amp stays whole. */
+@media (max-width:1180px){ .librig .tray .mic{display:none} .librig .grille{min-height:72px} }
+.libside{min-height:0;overflow:hidden}
+.libside h3{margin:2px 0 8px;font-weight:700;font-size:14px}
+.libside .used{margin-bottom:14px}
+.libprev{height:100%;display:grid;grid-template-rows:minmax(0,1fr) auto;gap:10px;border-radius:14px;padding:12px;background:var(--well);border:1px solid var(--line)}
+.libprev .boardfit{height:100%}
+.libprev .chain{pointer-events:none}
+.libcta{display:flex;align-items:center;justify-content:space-between;gap:10px}
+/* a narrower window gives the rig the whole width: sets and history step aside */
+@media (max-width:1279px){
+  .libbody{grid-template-columns:minmax(0,1fr)}
+  .libside{display:none}
+  .libR .acts .btn{padding:6px 10px;font-size:12.5px;min-height:34px}
+  .libR .lhead h1{font-size:24px}
+}
+.csrc select{appearance:auto;font-weight:500}
+/* packs */
+.phead{justify-content:flex-start;gap:16px}
+.phead .acts{margin-left:auto}
+.pinh{margin:18px 0 8px;font-weight:700;font-size:14px}
+.pgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.pgrid.two{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:8px}
+.pgi{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px;padding:0 11px;border-radius:9px;border:1px solid var(--line);font-size:13px;text-align:left;overflow:hidden}
+.pgi span{font-family:var(--font-num);font-size:9.5px;color:var(--faint);flex:none}
+.sharehow{margin-top:16px;padding:12px 14px;border-radius:12px;border:1px dashed var(--line2);background:var(--well);font-size:13px}
+.sharehow ol{margin:6px 0 0;padding-left:18px;color:var(--muted);line-height:1.6}
+.packdone{display:grid;grid-template-columns:104px 1fr;gap:16px;align-items:center}
+.makepack,.installpk{display:grid;grid-template-columns:260px minmax(0,1fr);gap:20px}
+.fld{display:grid;gap:5px;margin-bottom:10px}
+.fld textarea{resize:none}
+.pcols{display:flex;gap:6px;flex-wrap:wrap}
+.pcol{width:24px;height:24px;border-radius:7px}
+.pcol.on{outline:2px solid var(--ink);outline-offset:2px}
+.okmsg{margin-top:10px;padding:9px 11px;border-radius:10px;background:#20251b;border:1px solid #3c4a2c;color:#c9dcae;font-size:12.5px;line-height:1.45}
+.pkbar{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-bottom:8px}
+.pkbar b{margin-right:auto}
+.pick{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+.ck{display:flex;align-items:center;gap:8px;min-height:34px;padding:0 9px;border-radius:8px;border:1px solid var(--line);font-size:12.5px;text-align:left;min-width:0}
+.ck .box{flex:none;width:16px;height:16px;border-radius:4px;border:1.5px solid var(--line2);display:grid;place-items:center;font-size:11px}
+.ck .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ck small{flex:none;font-family:var(--font-num);font-size:9px;color:var(--faint)}
+.ck.on{border-color:var(--amber-deep,#6a4f25);background:var(--amber-soft)}
+.ck.on .box{background:var(--amber);border-color:var(--amber);color:#1a1408}
+.pkfoot{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.pkfoot .pager{margin-top:0}
+.packdrop{position:fixed;inset:12px;z-index:300;display:none;place-items:center;border:2px dashed var(--amber);border-radius:18px;background:rgba(20,16,12,.82);color:var(--amber);font-size:22px;font-weight:800;pointer-events:none;text-align:center}
+.packdrop small{display:block;margin-top:6px;font:500 12px var(--font-num);color:var(--muted)}
+.packdrop.on{display:grid}
 .used{display:grid;gap:6px}
 .used button{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:0 12px;border-radius:var(--r-sm);border:1px solid var(--line);font-size:13px;text-align:left}
 .used span{font-family:var(--font-num);font-size:10.5px;color:var(--faint)}
@@ -478,6 +632,22 @@ dl.helpdl dd{margin:2px 0 0;color:var(--muted);font-size:13px}
 .menu button{display:block;width:100%;text-align:left;min-height:44px;padding:0 12px;border-radius:8px;font-weight:600;font-size:13px}
 .menu button:active{background:var(--s3)}
 .plist{display:flex;flex-direction:column;gap:2px;max-height:46vh;overflow:auto;margin:-6px -6px 0}
+/* dark, thin scrollbars everywhere (the default white bar looked broken in the sheets) */
+*{scrollbar-width:thin;scrollbar-color:#3d3530 transparent}
+.pmenu{display:flex;flex-direction:column;gap:12px}
+.pmenu .plist{max-height:56vh;margin:0 -6px;padding:0 4px}
+.pmrow{border-radius:var(--r-sm);flex:none}
+.pmrow .li{width:100%}
+.pmrow.open{background:var(--well);box-shadow:inset 0 0 0 1px var(--line)}
+.pmrow.open .li{background:transparent;box-shadow:none}
+.pmbody{padding:2px 10px 12px;display:flex;flex-direction:column;gap:10px}
+.pmfit{overflow:hidden;border-radius:10px;background:var(--s1);border:1px solid var(--line);padding:2px}
+.pmfit .chain{pointer-events:none;flex-wrap:nowrap;width:max-content}
+.pmacts{display:flex;gap:8px;justify-content:flex-end}
+/* Your Amp: the capture chooser in the pedal sheet */
+.capick{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.capick select{flex:1 1 220px;min-height:44px;border-radius:10px;background:var(--s2);border:1px solid var(--line2);color:var(--ink);padding:0 12px;font:inherit;font-weight:600}
+.capick+.help{margin:8px 0 14px}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(10px);z-index:70;background:var(--s3);border:1px solid var(--line2);
        padding:10px 16px;border-radius:10px;font-weight:600;font-size:13px;opacity:0;transition:opacity .18s,transform .18s;pointer-events:none}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -662,6 +832,7 @@ dl.helpdl dd{margin:2px 0 0;color:var(--muted);font-size:13px}
    shared stacked layout. */
 .rigL{grid-template-rows:minmax(0,1fr) auto}
 .rigL .amp{order:1} .rigL .board{order:2}
+.rigL>.amp,.rigL>.pbrowse{grid-row:1;grid-column:1} .rigL>.board{grid-row:2;grid-column:1}
 .rigR .looper{order:1} .rigR .scenes{order:2} .rigR .card:last-child{order:3}
 @media (min-width:901px) and (orientation:landscape){ .rigR{grid-template-rows:auto minmax(0,1fr) auto} }
 </style>
@@ -700,10 +871,12 @@ dl.helpdl dd{margin:2px 0 0;color:var(--muted);font-size:13px}
   <section class="view on" id="view-rig">
     <div class="rigL">
       <div class="card board">
-        <div class="boardfit" id="boardFit"><div class="chain" id="chain"></div></div>
-        <div class="boardhint"><span class="cap">Tap the switch to stomp · tap the pedal to edit · hold for more</span><span class="cap" id="boardCount"></span></div>
+        <div class="boardfit" id="boardFit"><div class="chain" id="chain"></div><i class="dropmark" id="dropMark"></i></div>
+        <div class="boardhint"><span class="cap">Drag to move · turn knobs on the pedal · tap for all controls</span><span class="cap" id="boardCount"></span></div>
+        <div class="boardbin" id="boardBin">Drop here to remove</div>
       </div>
       <div class="amp" id="ampBox"></div>
+      <div class="pbrowse" id="pBrowse" aria-label="Pedal browser"></div>
     </div>
     <div class="rigR">
       <div class="card scenes">
@@ -899,9 +1072,10 @@ dl.helpdl dd{margin:2px 0 0;color:var(--muted);font-size:13px}
   <!-- ═══════════ LIBRARY ═══════════ -->
   <section class="view" id="view-library">
     <div class="card libL">
-      <div class="search"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="6" cy="6" r="4.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m9.2 9.2 3.3 3.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><input id="libSearch" placeholder="Search presets, sets, songs" aria-label="Search"></div>
-      <div class="seg" id="libSeg"><button data-k="presets" class="on">Presets</button><button data-k="sets">Sets</button><button data-k="songs">Songs</button><button data-k="captures">Captures</button></div>
-      <div class="newrow"><button class="btn" id="libNewPreset">+ New preset</button><button class="btn" id="libNewSet">+ New set</button><button class="btn" id="libShare">Share presets</button></div>
+      <div class="search"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="6" cy="6" r="4.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m9.2 9.2 3.3 3.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><input id="libSearch" placeholder="Search presets, packs, sets, songs" aria-label="Search"></div>
+      <div class="seg" id="libSeg"><button data-k="presets" class="on">Presets</button><button data-k="packs">Packs</button><button data-k="sets">Sets</button><button data-k="songs">Songs</button><button data-k="captures">Captures</button></div>
+      <div class="newrow" id="libNewRow"></div>
+      <div class="libfilters" id="libFilters"></div>
       <div class="list" id="libList"></div>
       <div class="pager" id="libPager"></div>
     </div>
@@ -1356,18 +1530,53 @@ function controls(container,params,only){
 const pick=(list,id)=>(list||[]).find(p=>p.id===id);
 
 
-
 /* ═════════════════════════════ PEDALS ═════════════════════════════
-   Every pedal has its own paint, the way a real board does — colour here is
-   the pedal's identity, never a state (state is the LED and the dimmed body). */
+   Every pedal is drawn as a real enclosure, in layers: painted metal with its
+   own finish (powder coat, hammertone, brushed, sparkle), our own printed
+   artwork, then the hardware - knobs you turn right on the board, the LED, the
+   footswitch, jacks and screws. Colour is the pedal's identity, never a state
+   (state is the LED and the dimmed body). */
 const PAINT={
   noiseGate:'#5d636b', clearDrive:'#d8a64a', tubeOd:'#6f9f5a', fuzz:'#9c4a3f', boost:'#c9c3b4',
   optoComp:'#7fa88a', fetComp:'#3e6a7a', graphicEq:'#34383f', paraEq:'#4b5563',
   envFilter:'#a8bf4a', octaver:'#6a5d8f', wah:'#2e2b28',
   chorus:'#5f86a6', flanger:'#7c6fa8', phaser:'#d07a3a', tremolo:'#a8564e',
-  analogDelay:'#4f8f8a', digitalDelay:'#3f7fa0', roomVerb:'#d9cfbd', ambientVerb:'#8ea6b4'};
-const CATC={Utility:'#5d636b',Drive:'#d8a64a',Dynamics:'#7fa88a',Filter:'#a8bf4a',Modulation:'#5f86a6',Time:'#4f8f8a'};
+  analogDelay:'#4f8f8a', digitalDelay:'#3f7fa0', roomVerb:'#d9cfbd', ambientVerb:'#8ea6b4', bow:'#8a3a1f', nam:'#22394a'};
+const CATC={Utility:'#5d636b',Drive:'#d8a64a',Dynamics:'#7fa88a',Filter:'#a8bf4a',Modulation:'#5f86a6',Time:'#4f8f8a',Amp:'#22394a'};
 const paintOf=b=>PAINT[b.type||b.id]||CATC[b.category]||'#5d636b';
+/** The metal's finish, which gives each enclosure its texture. */
+const FINISH={noiseGate:'brushed', clearDrive:'sparkle', tubeOd:'powder', fuzz:'hammer', boost:'brushed',
+  optoComp:'powder', fetComp:'hammer', graphicEq:'brushed', paraEq:'brushed', envFilter:'sparkle', octaver:'sparkle', wah:'hammer',
+  chorus:'sparkle', flanger:'sparkle', phaser:'powder', tremolo:'hammer', analogDelay:'hammer', digitalDelay:'brushed', roomVerb:'powder', ambientVerb:'sparkle', bow:'wood', nam:'hammer'};
+const CATFIN={Utility:'brushed',Drive:'powder',Dynamics:'powder',Filter:'sparkle',Modulation:'sparkle',Time:'hammer',Amp:'hammer'};
+const finishOf=b=>FINISH[b.type||b.id]||CATFIN[b.category]||'powder';
+/** Our own screen-printed marks, one per family, in the pedal's ink. */
+const ART={
+  Utility:'<path d="M2 12h10M18 12h6M30 12h14M50 12h6" stroke-width="2.4"/>',
+  Drive:'<path d="M2 16l7-9 6 7 8-11 6 10 8-8 6 9 7-6" stroke-width="2.2"/>',
+  Dynamics:'<path d="M2 6h14l6 6-6 6H2M58 6H44l-6 6 6 6h14" stroke-width="2"/>',
+  Filter:'<path d="M2 18C14 18 18 4 26 4s10 14 30 14" stroke-width="2.2"/>',
+  Modulation:'<path d="M2 12c5-8 9-8 14 0s9 8 14 0 9-8 14 0 9 8 14 0" stroke-width="2.2"/>',
+  Time:'<path d="M8 4v16M20 6v12M30 8v8M38 9.5v5M45 11v2" stroke-width="2.6"/>'};
+/** A pedal with a mark of its own rather than its family's: the Bow wears a violin's f-holes,
+    Your Amp a waveform going in and a learned one coming out. */
+const ARTBY={bow:'<path d="M17 3c-3 0-3 4 0 5s3 4 0 9-2 5 1 4M43 3c3 0 3 4 0 5s-3 4 0 9 2 5-1 4" stroke-width="2"/><circle cx="17" cy="3" r="1.6"/><circle cx="43" cy="3" r="1.6"/>',
+  nam:'<path d="M2 12c3-6 5-6 8 0s5 6 8 0" stroke-width="2"/><circle cx="26" cy="6" r="1.8"/><circle cx="26" cy="18" r="1.8"/><circle cx="34" cy="12" r="1.8"/><path d="M19 12l5-5M19 12l5 5M28 7l4 4M28 17l4-4" stroke-width="1.3"/><path d="M38 12h3l2-7 3 14 3-11 2 4h7" stroke-width="2"/>'};
+const DESC={noiseGate:'Silences hum and hiss between notes. It works best first on the board.',
+  clearDrive:'A transparent overdrive that keeps your guitar sounding like itself.',
+  tubeOd:'A mid-pushed tube-style overdrive. Tightens the amp for leads.',
+  fuzz:'A thick, sustaining fuzz.', boost:'A clean volume push into the amp.',
+  optoComp:'A smooth, slow compressor that evens out clean parts.', fetComp:'A fast, punchy compressor for tight picking.',
+  graphicEq:'Shape your tone band by band.', paraEq:'Precise tone shaping with a sweepable mid.',
+  envFilter:'An auto-wah that follows how hard you play.', octaver:'Adds octaves below and above your note.',
+  wah:'A classic wah. Map an expression pedal to Position.',
+  chorus:'A shimmering, doubled sound.', flanger:'A jet-like sweep.', phaser:'A swirling phase sweep.', tremolo:'A pulsing volume.',
+  analogDelay:'Warm, darkening repeats.', digitalDelay:'Clean, precise repeats.', roomVerb:'A small, natural room.',
+  ambientVerb:'A big ambient reverb for pads and swells.',
+  bow:'Your bass as a bowed string: every note swells in like a bow, holds, and takes a player’s vibrato. Cello, double bass or viola. Section turns chords into a string section; Solo follows a single line and plays it on the string.',
+  nam:'Your own amp. Load a Neural Amp Modeler capture (.nam) of a real amp and play through it. For a capture of an amp alone, leave the cab on; for a whole rig, turn the cab off too.'};
+const CATDESC={Utility:'A utility pedal.',Drive:'A drive pedal, in front of the amp.',Dynamics:'Dynamics and tone shaping.',
+  Filter:'A filter or pitch pedal.',Modulation:'Modulation, after the cab.',Time:'Delay or reverb, after the cab.',Amp:'An amp, from a capture.'};
 /** Dark or light lettering, whichever reads on the paint. */
 function inkOn(hex){ const n=parseInt(hex.slice(1),16), r=n>>16&255, g=n>>8&255, b=n&255;
   return (0.2126*r+0.7152*g+0.0722*b)>140?'#1c1408':'#f6efe4'; }
@@ -1376,26 +1585,39 @@ const SHORT={THRESHOLD:'THRESH',SENSITIVITY:'SENS',RESONANCE:'RESO',FEEDBACK:'FD
   SUSTAIN:'SUS',PRESENCE:'PRES',DISTANCE:'DIST','MID FREQ':'MID F','LOW CUT':'LO CUT','HIGH CUT':'HI CUT',
   DIRECTION:'SWEEP',DIVISION:'DIV','WOW/FLUTTER':'WOW','PING-PONG':'P-PONG',POSITION:'POS'};
 const short=s=>{ const u=String(s||'').toUpperCase(); return (SHORT[u]||u).slice(0,7); };
+const knobAngle=t=>(-135+270*t).toFixed(1)+'deg';
+const faceKnobs=b=>(b.params||[]).filter(p=>p.kind==='float'&&p.id!=='capture').slice(0,4);
+/** Your Amp: the capture a pedal has chosen, by the key the engine gave it. */
+const captureOf=b=>{ const k=Math.round(((b.params||[]).find(p=>p.id==='capture')||{value:0}).value);
+  return k>0?((S.captures||[]).find(c=>c.key===k)||{key:k,name:'',missing:true}):null; };
 
-/** A cream pedal knob cap (display only on the tile; edited in the sheet). */
-function capKnob(t){
-  const a=(-225+270*t)*Math.PI/180;
-  return '<svg viewBox="0 0 100 100"><circle cx="50" cy="54" r="36" fill="rgba(0,0,0,.28)"/>'+
-    '<circle cx="50" cy="50" r="36" fill="url(#capg)"/>'+
-    '<line x1="'+(50+8*Math.cos(a)).toFixed(1)+'" y1="'+(50+8*Math.sin(a)).toFixed(1)+'" x2="'+(50+31*Math.cos(a)).toFixed(1)+'" y2="'+(50+31*Math.sin(a)).toFixed(1)+'" stroke="#1c1306" stroke-width="7" stroke-linecap="round"/></svg>';
+/** The enclosure and its hardware. Knobs are live only on the board. */
+function pedalFace(b,cls){
+  const paint=paintOf(b), ink=inkOn(paint), knobs=faceKnobs(b);
+  const u=el('div','ped fin-'+finishOf(b)+(knobs.length>3?' w':'')+(ink==='#1c1408'?' lite':'')+(cls?' '+cls:''));
+  u.style.setProperty('--c',paint); u.style.setProperty('--t',ink);
+  u.innerHTML='<i class="tex"></i><i class="sc"></i><i class="sc"></i><i class="sc"></i><i class="sc"></i><i class="jk l"></i><i class="jk r"></i>'+
+    '<span class="pk">'+knobs.map(p=>'<span class="pkn"><span class="kb"><i class="cap" style="--a:'+knobAngle(norm(p))+'"></i><i class="gl"></i></span><b>'+esc(short(p.label))+'</b></span>').join('')+'</span>'+
+    '<span class="pled"></span><svg class="art" viewBox="0 0 60 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">'+(ARTBY[b.type||b.id]||ART[b.category]||ART.Utility)+'</svg>'+
+    '<span class="pn">'+esc((b.type||b.id)==='nam'?((captureOf(b)||{}).name||b.name):b.name)+'</span><span class="pft"></span>';
+  return u;
 }
 function pedalTile(b,chain){
-  const paint=paintOf(b), ink=inkOn(paint);
-  const u=el('div','ped'+(b.bypassed?' off':'')+(sel.kind==='pedal'&&sel.chain===chain&&sel.index===b.index?' sel':''));
-  u.style.setProperty('--c',paint); u.style.setProperty('--t',ink);
+  const u=pedalFace(b,(b.bypassed?'off':'')+(sel.kind==='pedal'&&sel.chain===chain&&sel.index===b.index?' sel':''));
   u.setAttribute('role','button'); u.setAttribute('aria-label',b.name+(b.bypassed?', off':', on'));
-  const knobs=(b.params||[]).filter(p=>p.kind==='float').slice(0,2);
-  u.innerHTML='<span class="pk">'+knobs.map(p=>capKnob(norm(p))).join('')+'</span><span class="pn">'+esc(b.name)+'</span><span class="pled"></span>';
+  u.dataset.chain=chain; u.dataset.index=b.index;
+  // The knobs turn on the pedal itself: drag up or down, double-click to reset,
+  // hold or right-click for MIDI Learn.
+  [...u.querySelectorAll('.pkn')].forEach((k,i)=>{ const p=faceKnobs(b)[i];
+    k.setAttribute('aria-label',p.label);
+    bindKnob(k,p,()=>k.querySelector('.cap').style.setProperty('--a',knobAngle(norm(p)))); });
   const sw=el('button','psw'); sw.setAttribute('aria-label',(b.bypassed?'Turn on ':'Turn off ')+b.name);
   sw.onclick=e=>{ e.stopPropagation(); cmd('set',{path:b.bypassPath,value:b.bypassed?0:1}); };
-  u.appendChild(sw);
+  sw.addEventListener('pointerdown',e=>e.stopPropagation());
+  u.querySelector('.pft').appendChild(sw);
   u.onclick=()=>{ sel={kind:'pedal',chain,index:b.index}; openPedalSheet(chain,b.index); };
   holdMenu(u,(x,y)=>pedalMenu(chain,b,x,y));
+  dragFrom(u,{chain,index:b.index,name:b.name});
   return u;
 }
 /** Long-press (touch) or right-click (mouse) opens a menu; a plain tap does not. */
@@ -1427,7 +1649,8 @@ function openPedalSheet(chain,index){
   top.appendChild(sw);
   top.appendChild(el('span','tag',esc(b.category)+(chain==='post'?' · after the cab':' · in front of the amp')));
   body.appendChild(top);
-  const box=el('div','ctls'); (b.params||[]).forEach(p=>box.appendChild(control(p,{col:'#3B82F6'}))); body.appendChild(box);
+  if(b.type==='nam') body.appendChild(capturePicker(b));
+  const box=el('div','ctls'); (b.params||[]).filter(p=>p.id!=='capture').forEach(p=>box.appendChild(control(p,{col:'#3B82F6'}))); body.appendChild(box);
   openSheet({title:b.name, body, wide:(b.params||[]).length>6, actions:[
     {label:'Remove', kind:'danger', onClick:()=>{ closeSheet(); cmd('removeBlock',{chain,index:b.index}); }},
     {label:'◀ Move', onClick:()=>{ if(b.index>0){ closeSheet(); cmd('moveBlock',{chain,from:b.index,to:b.index-1}); } }},
@@ -1435,6 +1658,27 @@ function openPedalSheet(chain,index){
     {label:b.bypassed?'Turn on':'Turn off', onClick:()=>{ closeSheet(); cmd('set',{path:b.bypassPath,value:b.bypassed?0:1}); }},
     {label:'Done', kind:'primary', onClick:closeSheet}]});
 }
+
+/** Your Amp's capture row: which .nam it plays, add one, or open the folder. */
+function capturePicker(b){
+  const row=el('div','capick'), cur=captureOf(b), path=(b.params.find(p=>p.id==='capture')||{}).path;
+  const s=el('select'); s.setAttribute('aria-label','Capture');
+  const opt=(v,t)=>{ const o=el('option'); o.value=v; o.textContent=t; s.appendChild(o); return o; };
+  opt(0,'No capture (plays straight through)');
+  (S.captures||[]).forEach(c=>{ const o=opt(c.key,c.name); if(cur&&cur.key===c.key) o.selected=true; });
+  if(cur&&cur.missing){ const o=opt(cur.key,'Missing capture'); o.selected=true; }
+  s.onchange=()=>cmd('set',{path,value:+s.value});
+  row.appendChild(s);
+  const add=el('button','btn','Add a capture…'); add.onclick=()=>chooseCapture(c=>{ if(c) cmd('set',{path,value:c.key}).then(()=>openPedalSheet(b.chain||chainOfPath(path),b.index)); });
+  const fo=el('button','btn','Open folder'); fo.onclick=()=>cmd('showCaptures');
+  row.appendChild(add); row.appendChild(fo);
+  const wrap=el('div'); wrap.appendChild(row);
+  wrap.appendChild(el('p','help',cur&&cur.missing?'The capture this preset uses is not in your Amp Captures folder. Add it again, or choose another.'
+    :(S.captures||[]).length?'Captures live in Documents › Amanorsac Studio › '+esc(PRODUCT.name)+' › Amp Captures. Drop a .nam file on the app to add one.'
+    :'Add a .nam capture of your own amp. It is checked, and timed on this computer, before it is used.'));
+  return wrap;
+}
+const chainOfPath=p=>String(p||'').startsWith('post.')?'post':'pre';
 
 /* ═════════════════════════════ AMPS ═════════════════════════════
    Each model wears its own faceplate. These are the colours of the plate, the
@@ -1551,6 +1795,16 @@ function renderAmp(){
   tray.appendChild(more);
   gr.appendChild(tray);
   box.appendChild(gr);
+  requestAnimationFrame(fitPlate);
+}
+/** The cab's name plate sits on the grille; on a short window the cab tray would
+ *  cover it, so it moves into the tray's own row instead. */
+function fitPlate(){
+  const gr=$('#ampBox .grille'), pl=gr&&gr.querySelector('.plate'), tr=gr&&gr.querySelector('.tray');
+  if(!pl||!tr) return;
+  if(pl.parentElement!==gr){ pl.classList.remove('in'); gr.appendChild(pl); }
+  const a=pl.getBoundingClientRect(), b=tr.getBoundingClientRect();
+  if(a.height&&a.bottom>b.top-4){ pl.classList.add('in'); tr.insertBefore(pl,tr.querySelector('.mic')||tr.lastChild); }
 }
 function openAmpModels(){
   const body=el('div','models'), m=ampModel();
@@ -1596,10 +1850,12 @@ function openRigSheet(){
 /* ═════════════════════════════ BOARD ═════════════════════════════ */
 function renderBoard(){
   const c=$('#chain'); c.innerHTML='';
+  c.appendChild(document.createElementNS('http://www.w3.org/2000/svg','svg')).setAttribute('class','cables');
   const jack=(label)=>{ const j=el('button','jack','<span>'+label+'</span>'); j.setAttribute('aria-label',label+' — input and output settings'); j.onclick=openRigSheet; return j; };
   c.appendChild(jack('INPUT'));
   const pre=S.pre||[], post=S.post||[];
   pre.forEach(b=>c.appendChild(pedalTile(b,'pre')));
+  c.appendChild(el('i','brk'));        // where the board breaks onto a second tier when it is full
   c.appendChild(ampMini());
   post.forEach(b=>c.appendChild(pedalTile(b,'post')));
   const add=el('button','addp','+'); add.setAttribute('aria-label','Add a pedal');
@@ -1607,49 +1863,192 @@ function renderBoard(){
   c.appendChild(add);
   c.appendChild(jack('OUTPUT'));
   $('#boardCount').textContent=(n=>n+(n===1?' pedal':' pedals'))(pre.length+post.length);
+  renderAmp();                         // first: the board's height depends on the amp's
   fitBoard();
-  renderAmp();
+  if(browse.open) renderBrowser();
 }
-/** The board is scaled to the width it has, never scrolled. */
+/** Patch cables from each jack to the next, drawn in the chain's own (unscaled) space. */
+function drawCables(){
+  const c=$('#chain'), svg=c&&c.querySelector('.cables'); if(!svg) return;
+  const parts=[...c.children].filter(n=>n!==svg&&!n.classList.contains('addp')&&!n.classList.contains('lift')&&!n.classList.contains('brk'));
+  const W=c.scrollWidth, H=c.offsetHeight; svg.setAttribute('viewBox','0 0 '+W+' '+H); svg.setAttribute('width',W); svg.setAttribute('height',H);
+  let d='';
+  for(let i=0;i+1<parts.length;i++){
+    const a=parts[i], b=parts[i+1];
+    const x1=a.offsetLeft+a.offsetWidth-2, x2=b.offsetLeft+2, y1=a.offsetTop+(a.classList.contains('ped')?34:a.offsetHeight/2), y2=b.offsetTop+(b.classList.contains('ped')?34:b.offsetHeight/2);
+    const lift=Math.max(16,Math.min(44,(x2-x1)*.6+14));
+    // down to the second tier: out of the last pedal, round, and into the amp
+    const path=Math.abs(y2-y1)>20?'M'+x1+' '+y1+'C'+(x1+70)+' '+(y1+10)+' '+(x2-70)+' '+(y2-10)+' '+x2+' '+y2
+      :'M'+x1+' '+y1+'C'+(x1+8)+' '+(y1-lift)+' '+(x2-8)+' '+(y2-lift)+' '+x2+' '+y2;
+    d+='<path d="'+path+'" class="cb"/><path d="'+path+'" class="cs"/>';
+  }
+  svg.innerHTML=d;
+}
+/** The board is scaled to the width it has, never scrolled. A full board goes
+    onto two tiers, like a real one - the pedals in front of the amp above, the
+    amp and what follows it below - so the knobs stay big enough to turn. */
 function fitBoard(){
   const fit=$('#boardFit'), c=$('#chain'); if(!fit||!c||!fit.clientWidth) return;
   c.style.transform='none';
-  const need=c.scrollWidth, have=fit.clientWidth;
-  let s=Math.min(1,have/Math.max(1,need));
+  const have=fit.clientWidth, amp=c.querySelector('.ampmini');
+  // the height the board may take: the column, less what the amp needs to stay whole
+  const rig=fit.closest('.rigL'), card=fit.closest('.card'), panel=$('#ampBox .panel');
+  const chrome=card?card.offsetHeight-fit.offsetHeight:40;
+  // the amp below needs its faceplate, its own padding and a grille tall enough for the cab tray
+  const tray=$('#ampBox .tray'), grl=$('#ampBox .grille'), grMin=grl?parseFloat(getComputedStyle(grl).minHeight)||110:110;
+  const ampNeed=panel?panel.offsetHeight+36+Math.max(grMin,tray?tray.offsetHeight+20:grMin):0;
+  const maxH=rig&&panel?Math.max(120,rig.clientHeight-14-chrome-ampNeed):1e9;
+  c.classList.remove('two'); c.style.width='';
+  const svg=c.querySelector('.cables'); if(svg){ svg.setAttribute('width',0); svg.setAttribute('height',0); }   // last layout's cables must not count
+  const ampX=amp?amp.offsetLeft:0, full=c.scrollWidth;     // the one-tier layout, measured before any wrap
+  const measure=two=>{ c.classList.toggle('two',two); c.style.width='';
+    if(two){ const w=Math.max(ampX,full-ampX+28); c.style.width=w+'px'; }
+    return Math.min(1,have/Math.max(1,c.scrollWidth),maxH/Math.max(1,c.offsetHeight)); };
+  let s=measure(false);
+  if(s<0.85&&amp&&(S.pre||[]).length&&(S.post||[]).length){ const s2=measure(true); if(s2>s*1.08) s=s2; else s=measure(false); }
+  // knobs stay big enough to turn on the Rig; in the Library the whole rig has to fit beside the details
+  const floor=rig&&rig.classList.contains('librig')?0.3:0.42;
+  s=Math.min(Math.max(floor,s),have/Math.max(1,c.scrollWidth));   // never wider than the board
   c.style.transformOrigin='0 0';       // shrink toward the top-left, so the box below can be cut to the scaled height
-  const apply=()=>{ c.style.transform='scale('+s.toFixed(4)+')'; fit.style.height=Math.ceil(c.offsetHeight*s)+'px'; };
-  apply();
-  // A short window: the card has less height than the pedals need, so shrink to fit that too.
-  const card=fit.closest('.card');
-  for(let k=0;k<3&&card&&card.scrollHeight>card.clientHeight+1;k++){
-    const over=card.scrollHeight-card.clientHeight; s=Math.max(0.5,s-over/Math.max(1,c.offsetHeight)); apply(); }
+  c.style.transform='scale('+s.toFixed(4)+')'; fit.style.height=Math.ceil(c.offsetHeight*s)+'px';
+  drawCables();
+  fitPlate();
 }
-window.addEventListener('resize',()=>{ fitBoard(); fitScenes(); });
+window.addEventListener('resize',()=>{ fitBoard(); fitScenes(); fitPlate(); });
 
-/* ═════════════════════════════ CATALOG ═════════════════════════════ */
-function openCatalog(chain,index){
-  const body=el('div');
-  const cats={};
-  (S.catalog||[]).forEach(c=>{ (cats[c.category]=cats[c.category]||[]).push(c); });
-  // Drive, dynamics and filters belong in front of the amp; modulation and
-  // time after the cab — the placement a guitarist would choose, unless they
-  // came here from a particular gap on the board.
-  const place=cat=>chain || (['Modulation','Time'].indexOf(cat)>=0?'post':'pre');
-  ['Drive','Dynamics','Filter','Modulation','Time','Utility'].forEach(cat=>{
-    if(!cats[cat]) return;
-    const g=el('div','catgroup'); g.appendChild(el('span','cap',esc(cat)));
-    const grid=el('div','catgrid');
-    cats[cat].forEach(c=>{
-      const b=el('button','catitem');
-      b.innerHTML='<span class="sw" style="--c:'+(PAINT[c.type]||CATC[cat])+'"></span><span>'+esc(c.name)+'</span>';
-      b.onclick=()=>{ closeSheet(); const ch=place(cat), list=ch==='post'?(S.post||[]):(S.pre||[]);
-        const at=index!=null?index:list.length;
-        cmd('addBlock',{chain:ch,type:c.type,index:at}).then(ok=>{ if(!ok) toast(ch==='post'?'After the cab is full (4 pedals)':'The board is full (8 pedals)'); else sel={kind:'pedal',chain:ch,index:at}; }); };
-      grid.appendChild(b);
-    });
-    g.appendChild(grid); body.appendChild(g);
+/* ═════════════════════════════ DRAG AND DROP ═════════════════════════════
+   Pick a pedal up and the board opens a gap where it will land, on either side
+   of the amp. Drop it on the bin to remove it. Pedals from the browser drop in
+   the same way. Hold or right-click still gives Move left / Move right. */
+let dnd=null;
+function dragFrom(node,src){
+  node.addEventListener('pointerdown',e=>{
+    if(e.button!==0||e.target.closest('.pkn,.psw')) return;
+    const x0=e.clientX, y0=e.clientY;
+    const mv=ev=>{ if(!dnd){ if(Math.hypot(ev.clientX-x0,ev.clientY-y0)<7) return; beginDrag(node,src,ev,x0,y0); } moveDrag(ev); };
+    const up=ev=>{ window.removeEventListener('pointermove',mv); window.removeEventListener('pointercancel',up);
+      if(dnd) endDrag(ev.type==='pointercancel'); };
+    window.addEventListener('pointermove',mv); window.addEventListener('pointerup',up,{once:true}); window.addEventListener('pointercancel',up,{once:true});
   });
-  openSheet({title:'Add a pedal', body, wide:true});
+}
+function boardScale(){ const c=$('#chain'); return c&&c.offsetWidth?c.getBoundingClientRect().width/c.offsetWidth:1; }
+function beginDrag(node,src,ev,x0,y0){
+  const face=node.classList.contains('ped')?node:node.querySelector('.ped'), r=node.getBoundingClientRect(), s=boardScale();
+  const g=face.cloneNode(true); g.classList.add('ghost'); g.classList.remove('sel','off');
+  g.style.transform='scale('+s+') rotate(-2deg)'; document.body.appendChild(g);
+  // from the board you hold it where you grabbed it; from the browser, by the middle
+  const ox=src.chain?(x0-r.left)/(r.width||1):.5, oy=src.chain?(y0-r.top)/(r.height||1):.3;
+  dnd={src,ghost:g,node,ox,oy,w:face.offsetWidth,h:face.offsetHeight,s,target:null};
+  if(src.chain){ node.classList.add('lift'); $('#boardBin').classList.add('on'); }
+  document.body.classList.add('dragging');
+  // the click that follows the drop must not open the pedal
+  window.addEventListener('click',eatClick,true);
+}
+function moveDrag(ev){
+  const g=dnd.ghost; g.style.left=(ev.clientX-dnd.ox*dnd.w*dnd.s)+'px'; g.style.top=(ev.clientY-dnd.oy*dnd.h*dnd.s)+'px';
+  const bin=$('#boardBin'), br=bin.getBoundingClientRect();
+  const onBin=!!dnd.src.chain&&ev.clientX>=br.left&&ev.clientX<=br.right&&ev.clientY>=br.top&&ev.clientY<=br.bottom;
+  bin.classList.toggle('hot',onBin); g.classList.toggle('bin',onBin);
+  const fit=$('#boardFit'), fr=fit.getBoundingClientRect();
+  const over=!onBin&&ev.clientY>fr.top-50&&ev.clientY<fr.bottom+50&&ev.clientX>fr.left-20&&ev.clientX<fr.right+20;
+  dnd.target=onBin?'bin':over?dropSpot(ev.clientX,ev.clientY):null;
+  const m=$('#dropMark');
+  if(dnd.target&&dnd.target!=='bin'){ m.style.left=(dnd.target.x-fr.left)+'px'; m.style.top=(dnd.target.top-fr.top)+'px'; m.style.height=dnd.target.h+'px'; m.classList.add('on'); }
+  else m.classList.remove('on');
+}
+/** Where a drop lands: which side of the amp, at what index, on the tier
+    nearest the pointer (a full board has two). */
+function dropSpot(x,y){
+  const c=$('#chain'), items=[...c.children].filter(n=>(n.classList.contains('ped')||n.classList.contains('ampmini'))&&!n.classList.contains('lift'));
+  const rs=items.map(n=>n.getBoundingClientRect());
+  let row=rs[0], best=1e9; rs.forEach(r=>{ const d=Math.abs(r.top+r.height/2-y); if(d<best){ best=d; row=r; } });
+  let chain='pre', idx=0, spot=null, last=null;
+  items.forEach((n,i)=>{ const r=rs[i], inRow=Math.abs(r.top-row.top)<24;
+    if(inRow&&!spot&&x<r.left+r.width/2) spot={chain,index:idx,x:r.left-8,top:r.top,h:r.height};
+    if(n.classList.contains('ampmini')){ chain='post'; idx=0; } else idx++;
+    if(inRow) last={chain,index:idx,x:r.right+8,top:r.top,h:r.height}; });
+  return spot||last;
+}
+function endDrag(cancel){
+  const d=dnd; dnd=null;
+  setTimeout(()=>window.removeEventListener('click',eatClick,true),0);
+  d.ghost.remove(); d.node.classList.remove('lift');
+  $('#boardBin').classList.remove('on','hot'); $('#dropMark').classList.remove('on'); document.body.classList.remove('dragging');
+  const t=cancel?null:d.target, s=d.src;
+  if(!t){ drawCables(); return; }
+  const full=ch=>toast(ch==='post'?'After the cab is full ('+(S.postCapacity||4)+' pedals)':'The board is full ('+(S.preCapacity||8)+' pedals)');
+  if(t==='bin'){ cmd('removeBlock',{chain:s.chain,index:s.index}).then(()=>{ sel={kind:'amp'}; toast('Removed '+s.name); }); return; }
+  if(!s.chain){
+    cmd('addBlock',{chain:t.chain,type:s.type,index:t.index}).then(ok=>{ if(!ok) full(t.chain); else sel={kind:'pedal',chain:t.chain,index:t.index}; });
+    return; }
+  if(s.chain===t.chain){ if(t.index!==s.index) cmd('moveBlock',{chain:s.chain,from:s.index,to:t.index}); else drawCables(); }
+  else cmd('transferBlock',{from:s.chain,fromIndex:s.index,to:t.chain,toIndex:t.index}).then(ok=>{ if(!ok) full(t.chain); });
+  sel={kind:'pedal',chain:t.chain,index:t.index};
+}
+
+/* ═════════════════════════════ PEDAL BROWSER ═════════════════════════════
+   Opens over the amp: a big preview of the chosen pedal on the left, every
+   pedal on the right. Drag one onto the board where you want it, or add it. */
+const browse={open:false, cat:'All', q:'', pick:null, page:0, target:null};
+const place=cat=>['Modulation','Time'].indexOf(cat)>=0?'post':'pre';
+function openCatalog(chain,index){
+  browse.open=true; browse.target=chain?{chain,index}:null; browse.page=0;
+  if(!browse.pick&&(S.catalog||[]).length) browse.pick=S.catalog[0].type;
+  renderBrowser(); $('#pBrowse').classList.add('on');
+}
+function closeBrowser(){ browse.open=false; $('#pBrowse').classList.remove('on'); }
+function addFromBrowser(c){
+  const t=browse.target, ch=t?t.chain:place(c.category), list=ch==='post'?(S.post||[]):(S.pre||[]);
+  const at=t&&t.index!=null?t.index:list.length;
+  browse.target=null;
+  cmd('addBlock',{chain:ch,type:c.type,index:at}).then(ok=>{ if(!ok) toast(ch==='post'?'After the cab is full':'The board is full'); else { sel={kind:'pedal',chain:ch,index:at}; toast(c.name+' added'); } });
+}
+function renderBrowser(){
+  const box=$('#pBrowse'); if(!box) return;
+  const cat=S.catalog||[], onBoard=new Set([...(S.pre||[]),...(S.post||[])].map(b=>b.type));
+  const c=cat.find(x=>x.type===browse.pick)||cat[0]; if(!c) return;
+  box.innerHTML='';
+  // preview
+  const pv=el('div','pbv');
+  pv.appendChild(el('span','tag',esc(c.category)+(onBoard.has(c.type)?' · on the board':'')));
+  const stage=el('div','pbstage'); stage.appendChild(pedalFace(c)); pv.appendChild(stage);
+  pv.appendChild(el('h3','',esc(c.name)));
+  pv.appendChild(el('p','',esc(DESC[c.type]||CATDESC[c.category]||'')));
+  const go=el('div','pbgo'), add=el('button','btn primary','Add to board'); add.onclick=()=>addFromBrowser(c);
+  go.appendChild(add); go.appendChild(el('span','cap','or drag it to the board')); pv.appendChild(go);
+  box.appendChild(pv);
+  // grid
+  const side=el('div','pbside'), bar=el('div','pbbar');
+  ['All','Drive','Dynamics','Filter','Modulation','Time','Utility'].filter(k=>k==='All'||cat.some(x=>x.category===k)).forEach(k=>{
+    const b=el('button','chip'+(browse.cat===k?' on':''),esc(k)); b.onclick=()=>{ browse.cat=k; browse.page=0; renderBrowser(); }; bar.appendChild(b); });
+  const q=el('input','pbq'); q.placeholder='Search pedals'; q.value=browse.q; q.setAttribute('aria-label','Search pedals');
+  q.oninput=()=>{ browse.q=q.value; browse.page=0; renderBrowser(); const n=$('#pBrowse .pbq'); n.focus(); n.setSelectionRange(n.value.length,n.value.length); };
+  bar.appendChild(q);
+  const done=el('button','btn small','Done'); done.onclick=closeBrowser; bar.appendChild(done);
+  side.appendChild(bar);
+  const grid=el('div','pbgrid'); side.appendChild(grid);
+  const pager=el('div','pager'); side.appendChild(pager);
+  box.appendChild(side);
+  const list=cat.filter(x=>(browse.cat==='All'||x.category===browse.cat)&&(x.name+' '+x.category).toLowerCase().indexOf(browse.q.toLowerCase())>=0);
+  // the preview pedal is as big as its stage allows
+  const big=stage.firstChild; big.style.transform='scale('+Math.min(1.25,(stage.clientHeight-8)/big.offsetHeight,(stage.clientWidth-16)/big.offsetWidth).toFixed(3)+')';
+  // nothing scrolls: as many tiles as fit (measured from a real one), then pages
+  const tile=x=>{
+    const t=el('button','pbt'+(x.type===c.type?' on':'')+(onBoard.has(x.type)?' used':''));
+    const m=el('span','mini'); m.appendChild(pedalFace(x)); t.appendChild(m); t.appendChild(el('span','nm',esc(x.name)));
+    t.onclick=()=>{ browse.pick=x.type; renderBrowser(); };
+    t.ondblclick=()=>addFromBrowser(x);
+    dragFrom(t,{chain:null,type:x.type,name:x.name});
+    return t; };
+  let per=list.length;
+  if(list.length){ grid.style.gridTemplateColumns='repeat(auto-fill,76px)'; const probe=grid.appendChild(tile(list[0])), th=probe.offsetHeight+8, tw=76+8;
+    probe.remove();
+    const cols=Math.max(3,Math.floor((grid.clientWidth+8)/tw)), rows=Math.max(1,Math.floor((grid.clientHeight+8)/th));
+    grid.style.gridTemplateColumns='repeat('+cols+',minmax(0,1fr))'; per=cols*rows; }
+  const pages=Math.max(1,Math.ceil(list.length/Math.max(1,per))); browse.page=Math.min(browse.page,pages-1);
+  list.slice(browse.page*per,browse.page*per+per).forEach(x=>grid.appendChild(tile(x)));
+  if(!list.length) grid.appendChild(el('span','cap','No pedal matches “'+esc(browse.q)+'”'));
+  if(pages>1) for(let i=0;i<pages;i++){ const d=el('button',i===browse.page?'on':'','<i></i>'); d.setAttribute('aria-label','Page '+(i+1)); d.onclick=()=>{ browse.page=i; renderBrowser(); }; pager.appendChild(d); }
 }
 
 /* ═════════════════════════════ SCENES ═════════════════════════════
@@ -1723,23 +2122,6 @@ function openSetPicker(sg){
     {label:'Add what’s playing', kind:'primary', onClick:()=>{ closeSheet(); cmd('songScene',{song:sg.id,action:'add'}).then(()=>toast('Added to '+sg.name)); }}]});
 }
 
-function openPresetMenu(){
-  const body=el('div');
-  const list=el('div','plist');
-  (S.presets||[]).forEach(p=>{
-    const r=el('button','li'+(p.id===S.presetId?' on':''),'<span class="t">'+esc(p.name)+'</span>');
-    r.onclick=()=>{ closeSheet(); cmd('loadPreset',{id:p.id}); };
-    list.appendChild(r);
-  });
-  body.appendChild(list);
-  openSheet({title:'Presets', body, actions:[
-    {label:'New', onClick:()=>ask('New preset','New Rig','Create').then(n=>{ if(n) cmd('newPreset',{name:n}); })},
-    {label:'Duplicate', onClick:()=>{ closeSheet(); cmd('duplicatePreset',{id:S.presetId}).then(()=>toast('Duplicated')); }},
-    {label:'Rename', onClick:()=>ask('Rename preset',S.name,'Rename').then(n=>{ if(n&&S.presetId) cmd('renamePreset',{id:S.presetId,name:n}); })},
-    {label:'Save as…', onClick:()=>ask('Save as new preset',S.name,'Save').then(n=>{ if(n) cmd('savePreset',{name:n,asNew:true}).then(()=>toast('Saved')); })},
-    {label:'Save', kind:'primary', onClick:()=>{ closeSheet(); cmd('savePreset',{}).then(()=>toast('Saved')); }}]});
-}
-
 
 
 /* ═════════════════════════════ LIBRARY ═════════════════════════════
@@ -1753,10 +2135,32 @@ const fmtWhen=ms=>{ if(!ms) return ''; const d=new Date(ms), now=new Date(), min
 function libRows(){ const h=$('#libList').clientHeight||400; return Math.max(3,Math.floor(h/52)); }
 function libItems(){
   const q=(lib.q||'').trim().toLowerCase(), hit=n=>!q||String(n).toLowerCase().includes(q);
-  if(lib.tab==='presets') return (S.presets||[]).filter(p=>hit(p.name));
+  if(lib.tab==='presets') return (S.presets||[]).filter(p=>(hit(p.name)||hit(p.category||'')||hit(p.packName||''))
+    &&(!lib.cat||lib.cat==='All'||p.category===lib.cat)&&srcHit(p));
+  if(lib.tab==='packs') return packList().filter(p=>hit(p.name)||hit(p.author));
   if(lib.tab==='sets') return (S.songs||[]).filter(s=>hit(s.name));
   if(lib.tab==='songs') return (L.lessons||[]).filter(s=>hit(s.name));
-  return (S.irs||[]).map((f,i)=>({id:String(i),name:String(f).split(/[\\/]/).pop(),path:f})).filter(x=>hit(x.name));
+  return [...(S.captures||[]).map(c=>({id:'nam:'+c.key,key:c.key,name:c.name,kind:'nam'})),
+          ...(S.irs||[]).map((f,i)=>({id:String(i),name:String(f).split(/[\\/]/).pop(),path:f,kind:'ir'}))].filter(x=>hit(x.name));
+}
+/** Where a preset came from: the factory, a pack the player installed, or their own. */
+const srcOf=p=>p.packId?'pack:'+p.packId:p.factory?'factory':'mine';
+const srcHit=p=>!lib.src||lib.src==='all'||srcOf(p)===lib.src;
+/** The packs to list: the factory library, every installed pack, and the player's own presets. */
+function packList(){
+  const pr=S.presets||[], n=f=>pr.filter(f).length;
+  return [{id:'factory',name:'Factory',author:'Amanorsac Studio',colour:0xffe3a447,count:n(p=>p.factory&&!p.packId),builtin:true,
+           description:'Every preset that comes with '+PRODUCT.name+'.'},
+    ...(S.packs||[]).map(p=>Object.assign({},p,{count:n(x=>x.packId===p.id)})),
+    {id:'mine',name:'My Presets',author:'You',colour:0xff5d636b,count:n(p=>!p.factory&&!p.packId),mine:true,
+     description:'The presets you have made or saved yourself.'}];
+}
+const packHex=c=>'#'+((c>>>0)&0xffffff).toString(16).padStart(6,'0');
+function packCover(p,big){
+  const c=packHex(p.colour||0xff2a8fa8), u=el('span','pcover'+(big?' big':''));
+  u.style.background='linear-gradient(150deg,'+c+','+c+'aa 60%,#0009)';
+  u.appendChild(el('b','',esc((p.name||'?').trim().charAt(0).toUpperCase())));
+  return u;
 }
 function chainSwatches(p){
   const all=[...(p.pre||[]),...(p.post||[])].slice(0,6);
@@ -1764,9 +2168,32 @@ function chainSwatches(p){
   for(let i=0;i<6;i++){ const b=all[i]; s+='<i'+(b?' style="background:'+(PAINT[b.id]||CATC[b.category]||'#5d636b')+(b.off?';opacity:.35':'')+'"':'')+'></i>'; }
   return s+'</span>';
 }
+/** Category filters, with how many presets each holds (only categories in use). */
+function renderLibFilters(){
+  const box=$('#libFilters'); box.innerHTML=''; box.hidden=lib.tab!=='presets';
+  if(lib.tab!=='presets') return;
+  const pr=(S.presets||[]).filter(srcHit), cats=['All',...(S.categories||[])];
+  pr.forEach(p=>{ if(p.category&&cats.indexOf(p.category)<0) cats.push(p.category); });
+  const chips=el('div','cchips');
+  cats.forEach(c=>{ const n=c==='All'?pr.length:pr.filter(p=>p.category===c).length; if(!n&&c!=='All') return;
+    const b=el('button','cchip'+((lib.cat||'All')===c?' on':''),esc(c)+'<i>'+n+'</i>');
+    b.onclick=()=>{ lib.cat=c; lib.page=0; lib.id=null; renderLibrary(); }; chips.appendChild(b); });
+  box.appendChild(chips);
+  const row=el('div','csrc'); row.appendChild(el('span','cap','Showing'));
+  const s=el('select'); s.setAttribute('aria-label','Which presets');
+  [['all','All presets'],['factory','Factory'],['mine','My presets'],...(S.packs||[]).map(p=>['pack:'+p.id,p.name])]
+    .forEach(([v,t])=>{ const o=el('option'); o.value=v; o.textContent=t; if((lib.src||'all')===v) o.selected=true; s.appendChild(o); });
+  s.onchange=()=>{ lib.src=s.value; lib.page=0; lib.id=null; renderLibrary(); };
+  row.appendChild(s); box.appendChild(row);
+}
 function renderLibrary(){
+  libSig=libSignature();
   [...$('#libSeg').children].forEach(b=>b.classList.toggle('on',b.dataset.k===lib.tab));
-  $('#libNewSet').hidden=false;
+  const nr=$('#libNewRow'); nr.innerHTML='';
+  const nb=(label,kind,fn)=>{ const b=el('button','btn'+(kind?' '+kind:''),esc(label)); b.onclick=fn; nr.appendChild(b); };
+  if(lib.tab==='packs'){ nb('Install a pack…','primary',chooseAndReadPack); nb('Make a pack','',()=>openMakePack()); }
+  else { nb('+ New preset','',newPresetHere); nb('+ New set','',()=>newSet()); nb('Make a pack','',()=>openMakePack()); }
+  renderLibFilters();
   const items=libItems(), per=libRows(), pages=Math.max(1,Math.ceil(items.length/per));
   if(!lib.id || !items.find(x=>x.id===lib.id)){
     lib.id = lib.tab==='presets' ? (items.find(x=>x.id===S.presetId)||items[0]||{}).id
@@ -1781,70 +2208,41 @@ function renderLibrary(){
     let html='';
     if(lib.tab==='presets'){
       const sg=song(), at=sg?sg.scenes.findIndex(sc=>sc.id===x.id):-1;
-      html=chainSwatches(x)+'<span style="min-width:0"><span class="t">'+esc(x.name)+'</span><span class="s">'+esc(((AMPS[x.amp]||{}).name||'')+' · '+((n=>n+(n===1?' pedal':' pedals'))((x.pre||[]).length+(x.post||[]).length)))+'</span></span>'+
-           (edited(x.id)?'<span class="k" style="color:var(--amber);border-color:var(--amber-deep)">EDITED</span>':at>=0&&at<6?'<span class="k">'+L2[at]+'</span>':(x.id===S.presetId?'<span class="live"></span>':'<span></span>'));
+      const tag=edited(x.id)?'<span class="k" style="color:var(--amber);border-color:var(--amber-deep)">EDITED</span>'
+        :at>=0&&at<6?'<span class="k">'+L2[at]+'</span>'
+        :x.packId?'<span class="k pk">'+esc(String(x.packName||'').toUpperCase())+'</span>'
+        :x.category?'<span class="k">'+esc(x.category.toUpperCase())+'</span>':(x.id===S.presetId?'<span class="live"></span>':'<span></span>');
+      html=chainSwatches(x)+'<span style="min-width:0"><span class="t">'+esc(x.name)+(x.id===S.presetId?' <span class="live" style="display:inline-block;vertical-align:middle"></span>':'')+'</span><span class="s">'+esc(((AMPS[x.amp]||{}).name||'')+' · '+((n=>n+(n===1?' pedal':' pedals'))((x.pre||[]).length+(x.post||[]).length)))+'</span></span>'+tag;
+    } else if(lib.tab==='packs'){
+      const r=el('button','li pli'+(x.id===lib.id?' on':''));
+      r.appendChild(packCover(x));
+      r.insertAdjacentHTML('beforeend','<span style="min-width:0"><span class="t">'+esc(x.name)+'</span><span class="s">'+esc(x.author)+' · '+x.count+(x.count===1?' preset':' presets')+'</span></span><span class="k'+(x.builtin||x.mine?'':' pk')+'">'+(x.builtin?'BUILT IN':x.mine?'YOURS':'INSTALLED')+'</span>');
+      r.onclick=()=>{ lib.id=x.id; renderLibrary(); };
+      list.appendChild(r); return;
     } else if(lib.tab==='sets'){
       html='<span class="sw6"><i style="background:var(--amber)"></i><i></i><i></i></span><span style="min-width:0"><span class="t">'+esc(x.name)+'</span><span class="s">'+x.scenes.length+' SCENES · '+Math.round(x.tempo)+' BPM</span></span>'+(x.id===S.songId?'<span class="live"></span>':'<span></span>');
     } else if(lib.tab==='songs'){
       html='<span class="sw6"><i style="background:var(--d6)"></i><i style="background:var(--d1)"></i><i style="background:var(--d5)"></i></span><span style="min-width:0"><span class="t">'+esc(x.name)+'</span><span class="s">'+(x.kind==='video'?'VIDEO':'AUDIO')+'</span></span>'+(L.lesson&&x.id===L.lesson.id?'<span class="live"></span>':'<span></span>');
     } else {
-      html='<span class="sw6"><i style="background:#8ea6b4"></i></span><span style="min-width:0"><span class="t">'+esc(x.name)+'</span><span class="s">IMPULSE RESPONSE</span></span><span></span>';
+      html='<span class="sw6"><i style="background:'+(x.kind==='nam'?'#22394a':'#8ea6b4')+'"></i></span><span style="min-width:0"><span class="t">'+esc(x.name)+'</span><span class="s">'+(x.kind==='nam'?'AMP CAPTURE':'IMPULSE RESPONSE')+'</span></span><span></span>';
     }
     const r=el('button','li'+(x.id===lib.id?' on':''),html);
     r.onclick=()=>{ lib.id=x.id; renderLibrary(); };
     list.appendChild(r);
   });
   if(!items.length) list.appendChild(el('div','empty',lib.q?'Nothing matches “'+esc(lib.q)+'”.':
-    lib.tab==='songs'?'No songs yet. Import one on the Learn tab.':lib.tab==='captures'?'No impulse files yet. Put .wav IRs in the IRs folder, then Rescan.':'Nothing here yet.'));
+    lib.tab==='songs'?'No songs yet. Import one on the Learn tab.':lib.tab==='captures'?'No captures yet. Drop a .nam amp capture or a .wav cab IR on the app.':'Nothing here yet.'));
   const pg=$('#libPager'); pg.innerHTML=''; pg.hidden=pages<2;
   for(let i=0;i<pages;i++){ const b=el('button',i===lib.page?'on':'','<i></i>'); b.setAttribute('aria-label','Page '+(i+1)); b.onclick=()=>{ lib.page=i; renderLibrary(); }; pg.appendChild(b); }
   renderLibDetail(items.find(x=>x.id===lib.id));
 }
 function libActs(btns){ const a=el('div','acts'); btns.forEach(([label,kind,fn])=>{ const b=el('button','btn'+(kind?' '+kind:''),esc(label)); b.onclick=fn; a.appendChild(b); }); return a; }
 function renderLibDetail(x){
+  homeRig();                            // take the rig back before the page is rebuilt
   const d=$('#libDetail'); d.innerHTML='';
   if(!x){ d.appendChild(el('div','empty','Choose something on the left.')); return; }
-  if(lib.tab==='presets'){
-    const loaded=x.id===S.presetId, dirty=edited(x.id);
-    const h=el('div','lhead');
-    const t=el('div'); t.innerHTML='<span class="cap">Preset'+(x.history&&x.history[0]?' · saved '+esc(fmtWhen(x.history[0].t)):'')+(dirty?' · changes not saved':'')+'</span><h1>'+esc(x.name)+'</h1>';
-    h.appendChild(t);
-    h.appendChild(libActs([
-      [loaded?'Loaded':'Load', loaded?'':'primary', ()=>cmd('loadPreset',{id:x.id})],
-      ['Rename','',()=>ask('Rename preset',x.name,'Rename').then(n=>{ if(n) cmd('renamePreset',{id:x.id,name:n}); })],
-      ['Duplicate','',()=>cmd('duplicatePreset',{id:x.id}).then(id=>{ if(id){ lib.id=id; toast('Duplicated'); } })],
-      ['Export','',()=>cmd('exportPreset',{id:x.id}).then(p=>toast(p?'Exported to Documents › Amanorsac Studio › '+PRODUCT.name+' › Exports':'Export failed.'))],
-      ['Delete','danger',()=>{ const usedIn=(S.songs||[]).filter(s=>s.scenes.some(sc=>sc.id===x.id)).map(s=>s.name);
-        confirmBox('Delete “'+x.name+'”?',usedIn.length?'It will also come out of '+usedIn.join(', ')+'.':'This cannot be undone.').then(ok=>{ if(ok){ lib.id=null; cmd('deletePreset',{id:x.id}); } }); }]]
-      .concat(dirty&&loaded?[['Save','primary',e=>saveLive(e&&e.currentTarget)]]:[])));
-    d.appendChild(h);
-    // the chain at a glance
-    const mc=el('div','minichain'), st=AMPS[x.amp]||AMPS[0];
-    const unit=(cls,styleFn,label,off)=>{ const u=el('div','mc'+(cls?' '+cls:'')+(off?' off':'')); const i=el('i'); styleFn(u,i); u.appendChild(i); const s=el('span'); s.textContent=label; u.appendChild(s); return u; };
-    const parts=[];
-    (x.pre||[]).forEach(b=>parts.push(unit('',(u,i)=>u.style.setProperty('--c',PAINT[b.id]||CATC[b.category]),b.name,b.off)));
-    parts.push(unit('amp',(u)=>styleAmp(u,st),st.name));
-    parts.push(unit('cab',(u)=>u.style.setProperty('--g',st.g),(CABS[x.cab]||CABS[1]).name));
-    (x.post||[]).forEach(b=>parts.push(unit('',(u,i)=>u.style.setProperty('--c',PAINT[b.id]||CATC[b.category]),b.name,b.off)));
-    parts.forEach((u,i)=>{ if(i) mc.appendChild(el('span','arrow')); mc.appendChild(u); });
-    d.appendChild(mc);
-    const g=el('div','libgrid');
-    const a=el('div'); a.appendChild(el('h3',null,'Used in'));
-    const used=el('div','used'), L2='ABCDEF';
-    const sets=(S.songs||[]).filter(s=>s.scenes.some(sc=>sc.id===x.id));
-    sets.slice(0,4).forEach(s=>{ const i=s.scenes.findIndex(sc=>sc.id===x.id);
-      const b=el('button',null,esc(s.name)+'<span>SCENE '+(i<6?L2[i]+' · FOOTSWITCH '+(i+1):String(i+1))+'</span>');
-      b.onclick=()=>{ lib={tab:'sets',id:s.id,page:0,q:''}; renderLibrary(); }; used.appendChild(b); });
-    if(!sets.length) used.appendChild(el('div','help','Not in any set yet. Add it from a set’s + tile.'));
-    a.appendChild(used); g.appendChild(a);
-    const hb=el('div'); hb.appendChild(el('h3',null,'History'));
-    const hist=el('div','hist');
-    (x.history||[]).slice(0,5).forEach((c,i)=>{ const r=el('div','hr'+(i===0?' cur':'')); r.innerHTML='<i></i><span style="font-family:var(--font-ui);font-size:13px;color:var(--muted)">'+esc(c.x)+'</span><span>'+esc(fmtWhen(c.t))+'</span>'; hist.appendChild(r); });
-    if(!(x.history||[]).length) hist.appendChild(el('div','help','Each save is noted here, with what changed.'));
-    hb.appendChild(hist); g.appendChild(hb);
-    d.appendChild(g);
-    return;
-  }
+  if(lib.tab==='presets'){ presetDetail(d,x); return; }
+  if(lib.tab==='packs'){ packDetail(d,x); return; }
   if(lib.tab==='sets'){
     const h=el('div','lhead');
     const t=el('div'); t.innerHTML='<span class="cap">Set · '+x.scenes.length+' scenes · '+Math.round(x.tempo)+' BPM</span><h1>'+esc(x.name)+'</h1>';
@@ -1886,34 +2284,56 @@ function renderLibDetail(x){
     return;
   }
   const h=el('div','lhead');
-  const t=el('div'); t.innerHTML='<span class="cap">Capture · impulse response</span><h1>'+esc(x.name)+'</h1>';
+  const t=el('div');
+  if(x.kind==='nam'){
+    t.innerHTML='<span class="cap">Capture · your amp (NAM)</span><h1>'+esc(x.name)+'</h1>';
+    h.appendChild(t);
+    h.appendChild(libActs([['Use on this rig','primary',()=>useCapture(x)],['Add a capture…','',()=>chooseCapture()],
+      ['Open folder','',()=>cmd('showCaptures')],
+      ['Remove','danger',()=>confirmBox('Remove “'+x.name+'”?','The file goes to the Recycle Bin. Presets that use it play straight through until you add it again.')
+        .then(ok=>{ if(ok){ lib.id=null; cmd('removeCapture',{key:x.key}); } })]]));
+    d.appendChild(h);
+    d.appendChild(el('div','help','A Neural Amp Modeler capture is a learned copy of a real amp. It plays on the Your Amp pedal, with the built-in amp switched off. Every capture is checked, and timed on this computer, before it is used.'));
+    return;
+  }
+  t.innerHTML='<span class="cap">Capture · impulse response</span><h1>'+esc(x.name)+'</h1>';
   h.appendChild(t);
-  h.appendChild(libActs([['Use on this rig','primary',()=>{ send('cab.model',3); send('cab.ir',+x.id); toast('Cab › Your IR: '+x.name); }],['Open folder','',()=>cmd('openFolder')],['Rescan','',()=>cmd('rescan')]]));
+  h.appendChild(libActs([['Use on this rig','primary',()=>{ send('cab.model',PRODUCT.cabIr); send('cab.ir',+x.id); toast('Cab › Your IR: '+x.name); }],['Open folder','',()=>cmd('openFolder')],['Rescan','',()=>cmd('rescan')]]));
   d.appendChild(h);
-  d.appendChild(el('div','help','An impulse response is a recording of a real cabinet and microphone. Put .wav files in the IRs folder, then Rescan. Amp captures (NAM) are not supported yet.'));
+  d.appendChild(el('div','help','An impulse response is a recording of a real cabinet and microphone. Put .wav files in the IRs folder, then Rescan.'));
+}
+/* ───────────── YOUR AMP CAPTURES ─────────────
+   Like a pack, the page reads the file and hands its text to the engine, which
+   builds and times it before copying it into the Amp Captures folder. */
+const CAPTURE_MAX=32*1024*1024;
+function readCaptureFile(file,then){
+  if(!file) return;
+  if(!/\.nam$/i.test(String(file.name||''))){ toast('That is not an amp capture (.nam file)'); return; }
+  if(file.size>CAPTURE_MAX){ toast('That file is too big to be an amp capture'); return; }
+  const fr=new FileReader();
+  toast('Checking '+file.name+'…');
+  fr.onload=()=>cmd('importCapture',{name:file.name,text:String(fr.result||'')}).then(r=>{
+    if(!r||!r.ok){ toast((r&&r.error)||'That capture could not be read'); if(then) then(null); return; }
+    toast('Added '+r.name+(r.rate&&Math.abs(r.rate-48000)>1?' ('+Math.round(r.rate/100)/10+' kHz capture)':''));
+    if(then) then(r); });
+  fr.onerror=()=>toast('That file could not be read');
+  fr.readAsText(file);
+}
+function chooseCapture(then){
+  const i=document.createElement('input'); i.type='file'; i.accept='.nam';
+  i.onchange=()=>readCaptureFile(i.files&&i.files[0],then||(r=>{ if(r){ lib={tab:'captures',id:'nam:'+r.key,page:0,q:''}; if(view==='library') renderLibrary(); } }));
+  i.click();
+}
+/** Put a capture on the rig: on the Your Amp pedal if there is one, else a new one first on the board. */
+function useCapture(x){
+  const at=(S.pre||[]).find(b=>b.type==='nam');
+  const set=b=>{ const p=(b.params||[]).find(q=>q.id==='capture'); if(p) cmd('set',{path:p.path,value:x.key}); };
+  if(at){ set(at); toast('Your Amp › '+x.name); return; }
+  if((S.pre||[]).length>=8){ toast('The board is full. Remove a pedal first.'); return; }
+  cmd('addBlock',{chain:'pre',type:'nam',index:(S.pre||[]).length}).then(()=>setTimeout(()=>{ const b=(S.pre||[]).find(q=>q.type==='nam'); if(b) set(b); toast('Added Your Amp with '+x.name); },120));
 }
 $('#libSeg').addEventListener('click',e=>{ const k=e.target.dataset&&e.target.dataset.k; if(k){ lib={tab:k,id:null,page:0,q:lib.q}; renderLibrary(); } });
 $('#libSearch').addEventListener('input',e=>{ lib.q=e.target.value; lib.page=0; lib.id=null; renderLibrary(); });
-/** Beta: choose presets to send back to the studio. They are copied into the
- *  Beta Presets folder with a note on how to send them; nothing is uploaded. */
-function openShareSheet(){
-  const body=el('div');
-  body.appendChild(el('p','help','Choose the presets to send back. They are copied into Documents › Amanorsac Studio › '+esc(PRODUCT.name)+' › Beta Presets, with a note on how to send them. Nothing is sent automatically.'));
-  const credit=el('input','field'); credit.placeholder='Your name for the credit (optional)'; credit.maxLength=60; credit.setAttribute('aria-label','Name for the credit');
-  body.appendChild(credit);
-  const list=el('div','sharelist'), picks=new Set();
-  (S.presets||[]).forEach(p=>{ const row=el('label','sharerow'); const cb=el('input'); cb.type='checkbox';
-    cb.onchange=()=>{ if(cb.checked) picks.add(p.id); else picks.delete(p.id); go.disabled=!picks.size; go.textContent=picks.size?'Copy '+picks.size+(picks.size===1?' preset':' presets'):'Copy presets'; };
-    row.appendChild(cb); row.appendChild(el('span',null,esc(p.name))); list.appendChild(row); });
-  body.appendChild(list);
-  openSheet({title:'Share presets', body, actions:[
-    {label:'Cancel', onClick:closeSheet},
-    {label:'Copy presets', kind:'primary', onClick:()=>{ if(!picks.size) return; cmd('sharePresets',{ids:[...picks],credit:credit.value.trim()}).then(n=>{ closeSheet(); toast(n>0?n+(n===1?' preset copied.':' presets copied.')+' Send them as the note in the folder says.':'Nothing was copied.'); }); }}]});
-  const go=[...document.querySelectorAll('#sheet .sf button')].pop(); go.disabled=true;
-}
-$('#libShare').onclick=openShareSheet;
-$('#libNewPreset').onclick=()=>ask('New preset','New Rig','Create').then(n=>{ if(n) cmd('newPreset',{name:n}).then(id=>{ lib={tab:'presets',id,page:0,q:''}; toast('Created '+n+'. The board is empty.'); }); });
-$('#libNewSet').onclick=()=>newSet();
 function newSet(){ return ask('New set','Sunday','Create').then(n=>{ if(!n) return;
   cmd('newSong',{name:n,empty:true}).then(id=>{ lib={tab:'sets',id,page:0,q:''}; toast(n+'. Add presets with +.'); }); }); }
 
@@ -1981,9 +2401,15 @@ function applyState(st){
   ytSync();
   if(st.learning) toast('MIDI Learn: move a control on the device.');
   /* A drag in progress must not be rebuilt out from under the finger. */
-  if(document.querySelector('.dial:active,.akn:active,.rng:active')) return;
-  renderBoard(); renderStage(); renderLibrary(); renderSettings();
+  if(dnd||document.querySelector('.dial:active,.akn:active,.rng:active,.pkn:active')) return;
+  renderBoard(); renderStage(); renderSettings();
+  /* The engine sends state about once a second. Rebuilding the Library each time moved the
+     rig out and back and re-fitted it, which made the page shake; only redraw on a change. */
+  if(view==='library'&&libSignature()!==libSig) renderLibrary();
+  if(presetMenuOpen()&&pmSignature()!==pm.sig) renderPresetMenu();
 }
+let libSig='';
+const libSignature=()=>S?JSON.stringify([S.presets,S.packs,S.songs,S.irs,S.categories,S.presetId,S.songId,S.name,S.dirty,S.edits]):'';
 
 const DASH=2*Math.PI*42;
 const dbOf=v=>v>0.0001?20*Math.log10(v):-80;
@@ -2050,6 +2476,297 @@ function applyTick(t){
     [...$('#tStrings').children].forEach((s,i)=>{ s.classList.toggle('on',i===near&&!tn.inTune); s.classList.toggle('ok',i===near&&!!tn.inTune); });
   }
 }
+
+/* ═════════════════════════════ THE RIG, IN THE LIBRARY ═════════════════════════════
+   The loaded preset is edited in the Library with the very same board and amp
+   as the Rig page: the nodes themselves are moved here while the Library shows
+   it, and put back when it does not, so the two can never look or behave
+   differently. A preset that is not loaded shows its pedals at rest, with Load. */
+const rigParts=()=>[$('.card.board'),$('#ampBox'),$('#pBrowse')].filter(Boolean);
+function homeRig(){
+  const home=$('#view-rig .rigL'), parts=rigParts();
+  if(!home||!parts.length||parts[0].parentElement===home) return;
+  const first=home.firstChild; parts.forEach(n=>home.insertBefore(n,first));
+  requestAnimationFrame(fitBoard);
+}
+function mountRig(box){
+  box.classList.add('rigL'); rigParts().forEach(n=>box.appendChild(n));
+  requestAnimationFrame(()=>{ fitBoard(); });
+}
+/** A preset that is not loaded: its pedals and amp as they sit on the board. */
+function rigPreview(x){
+  const wrap=el('div','libprev'), fit=el('div','boardfit'), c=el('div','chain');
+  const face=b=>{ const cat=(S.catalog||[]).find(k=>k.type===b.id)||{params:[]};
+    return pedalFace({type:b.id,name:b.name,category:b.category,params:cat.params},b.off?'off':''); };
+  (x.pre||[]).forEach(b=>c.appendChild(face(b)));
+  const st=AMPS[x.amp]||AMPS[0], a=el('div','ampmini'); styleAmp(a,st);
+  a.innerHTML='<div class="pl"><i></i><i></i><i></i><i></i></div><div class="gr"></div><b>'+esc(st.name)+'</b>';
+  c.appendChild(a);
+  (x.post||[]).forEach(b=>c.appendChild(face(b)));
+  fit.appendChild(c); wrap.appendChild(fit);
+  const cta=el('div','libcta');
+  cta.appendChild(el('span','cap',esc(st.name)+' · '+esc((CABS[x.cab]||CABS[1]).name)+' · knobs shown at rest'));
+  const go=el('button','btn primary','Load to hear and edit'); go.onclick=()=>cmd('loadPreset',{id:x.id});
+  cta.appendChild(go); wrap.appendChild(cta);
+  requestAnimationFrame(()=>{ c.style.transform='none'; const s=Math.min(1,(fit.clientWidth-8)/Math.max(1,c.scrollWidth),(fit.clientHeight-8)/Math.max(1,c.offsetHeight));
+    c.style.transformOrigin='0 0'; c.style.transform='scale('+s.toFixed(3)+')'; });
+  return wrap;
+}
+/* ───────────── PRESET MENU (the name at the top of the Rig) ─────────────
+   Tap a name to open it out: its pedals and amp shown small, with Load. */
+const pm={open:null,q:'',sig:''};
+const pmSignature=()=>JSON.stringify([S.presets,S.presetId,pm.open,pm.q]);
+function miniChain(x){
+  const fit=el('div','pmfit'), c=el('div','chain');
+  const face=b=>{ const cat=(S.catalog||[]).find(k=>k.type===b.id)||{params:[]};
+    return pedalFace({type:b.id,name:b.name,category:b.category,params:cat.params},b.off?'off':''); };
+  (x.pre||[]).forEach(b=>c.appendChild(face(b)));
+  const st=AMPS[x.amp]||AMPS[0], a=el('div','ampmini'); styleAmp(a,st);
+  a.innerHTML='<div class="pl"><i></i><i></i><i></i><i></i></div><div class="gr"></div><b>'+esc(st.name)+'</b>';
+  c.appendChild(a);
+  (x.post||[]).forEach(b=>c.appendChild(face(b)));
+  fit.appendChild(c);
+  requestAnimationFrame(()=>{ const s=Math.min(.5,(fit.clientWidth-4)/Math.max(1,c.scrollWidth));
+    c.style.transformOrigin='0 0'; c.style.transform='scale('+s.toFixed(3)+')'; fit.style.height=Math.ceil(c.offsetHeight*s+4)+'px'; });
+  return fit;
+}
+const presetMenuOpen=()=>$('#scrim').classList.contains('on')&&!!$('#sheet .pmenu');
+function renderPresetMenu(){
+  const list=$('#sheet .pmenu .plist'); if(!list) return;
+  pm.sig=pmSignature();
+  const q=pm.q.trim().toLowerCase(), keep=list.scrollTop;
+  const items=(S.presets||[]).filter(p=>!q||[p.name,p.category,p.packName].some(s=>String(s||'').toLowerCase().includes(q)));
+  list.innerHTML='';
+  items.forEach(p=>{
+    const open=pm.open===p.id, loaded=p.id===S.presetId;
+    const r=el('div','pmrow'+(open?' open':'')+(loaded?' on':''));
+    const n=(p.pre||[]).length+(p.post||[]).length;
+    const head=el('button','li'+(loaded?' on':''),chainSwatches(p)+'<span style="min-width:0"><span class="t">'+esc(p.name)
+      +(loaded?' <span class="live" style="display:inline-block;vertical-align:middle"></span>':'')+'</span><span class="s">'
+      +esc(((AMPS[p.amp]||{}).name||'')+' · '+n+(n===1?' pedal':' pedals'))+'</span></span>'
+      +(p.category?'<span class="k">'+esc(p.category.toUpperCase())+'</span>':'<span></span>'));
+    head.setAttribute('aria-expanded',open);
+    head.onclick=()=>{ pm.open=open?null:p.id; renderPresetMenu(); };
+    r.appendChild(head);
+    if(open){
+      const body=el('div','pmbody');
+      body.appendChild(miniChain(p));
+      const acts=el('div','pmacts');
+      const go=el('button','btn'+(loaded?'':' primary'),loaded?'Loaded':'Load');
+      go.onclick=()=>{ closeSheet(); if(!loaded) cmd('loadPreset',{id:p.id}); };
+      const lb=el('button','btn','Open in Library');
+      lb.onclick=()=>{ closeSheet(); lib={tab:'presets',id:p.id,page:0,q:'',cat:'All',src:'all'}; showView('library'); };
+      acts.appendChild(go); acts.appendChild(lb); body.appendChild(acts);
+      r.appendChild(body);
+    }
+    list.appendChild(r);
+  });
+  if(!items.length) list.appendChild(el('div','empty','Nothing matches “'+esc(pm.q)+'”.'));
+  list.scrollTop=keep;
+}
+function openPresetMenu(){
+  pm.open=S.presetId; pm.q='';
+  const body=el('div','pmenu');
+  const f=el('input','field'); f.placeholder='Search presets'; f.setAttribute('aria-label','Search presets');
+  f.oninput=()=>{ pm.q=f.value; renderPresetMenu(); };
+  body.appendChild(f);
+  body.appendChild(el('div','plist'));
+  openSheet({title:'Presets', body, actions:[
+    {label:'New', onClick:()=>ask('New preset','New Rig','Create').then(n=>{ if(n) cmd('newPreset',{name:n}); })},
+    {label:'Duplicate', onClick:()=>{ closeSheet(); cmd('duplicatePreset',{id:S.presetId}).then(()=>toast('Duplicated')); }},
+    {label:'Rename', onClick:()=>ask('Rename preset',S.name,'Rename').then(n=>{ if(n&&S.presetId) cmd('renamePreset',{id:S.presetId,name:n}); })},
+    {label:'Save as…', onClick:()=>ask('Save as new preset',S.name,'Save').then(n=>{ if(n) cmd('savePreset',{name:n,asNew:true}).then(()=>toast('Saved')); })},
+    {label:'Save', kind:'primary', onClick:()=>{ closeSheet(); cmd('savePreset',{}).then(()=>toast('Saved')); }}]});
+  renderPresetMenu();
+  const on=$('#sheet .pmrow.on'); if(on) on.scrollIntoView({block:'center'});
+}
+function chooseCategory(x,anchor){
+  const r=anchor.getBoundingClientRect();
+  openMenu(r.left,r.bottom+4,[...(S.categories||[]),'None'].map(c=>({label:(x.category===c||(!x.category&&c==='None')?'✓ ':'')+c,
+    onClick:()=>cmd('setCategory',{id:x.id,category:c==='None'?'':c}).then(()=>toast(c==='None'?'No category':'Moved to '+c))})));
+}
+function newPresetHere(){
+  ask('New preset','New Rig','Create').then(n=>{ if(n) cmd('newPreset',{name:n}).then(id=>{ lib={tab:'presets',id,page:0,q:'',cat:'All',src:'all'};
+    toast('Created '+n+'. Build it here: + adds a pedal.'); }); });
+}
+function presetDetail(d,x){
+  const loaded=x.id===S.presetId, dirty=edited(x.id);
+  const h=el('div','lhead');
+  const t=el('div');
+  t.innerHTML='<span class="cap">Preset'+(x.history&&x.history[0]?' · saved '+esc(fmtWhen(x.history[0].t)):'')+(dirty?' · changes not saved':'')+'</span><h1>'+esc(x.name)+'</h1>'
+    +'<div class="ptags">'+(x.category?'<span class="k">'+esc(x.category.toUpperCase())+'</span>':'')
+    +(x.packId?'<span class="k pk">FROM '+esc(String(x.packName||'').toUpperCase())+' · '+esc(String(x.packAuthor||'').toUpperCase())+'</span>':x.factory?'<span class="k">FACTORY</span>':'<span class="k">YOURS</span>')+'</div>';
+  h.appendChild(t);
+  const acts=libActs([
+    [loaded?'Loaded':'Load', loaded?'':'primary', ()=>cmd('loadPreset',{id:x.id})],
+    ['Rename','',()=>ask('Rename preset',x.name,'Rename').then(n=>{ if(n) cmd('renamePreset',{id:x.id,name:n}); })],
+    ['Category ▾','',e=>chooseCategory(x,e.currentTarget)],
+    ['Duplicate','',()=>cmd('duplicatePreset',{id:x.id}).then(id=>{ if(id){ lib.id=id; toast('Duplicated'); } })],
+    ['Add to a pack','',()=>openMakePack({ids:[x.id]})],
+    ['Delete','danger',()=>{ const usedIn=(S.songs||[]).filter(s=>s.scenes.some(sc=>sc.id===x.id)).map(s=>s.name);
+      confirmBox('Delete “'+x.name+'”?',usedIn.length?'It will also come out of '+usedIn.join(', ')+'.':'This cannot be undone.').then(ok=>{ if(ok){ lib.id=null; cmd('deletePreset',{id:x.id}); } }); }]]
+    .concat(dirty&&loaded?[['Save','primary',e=>saveLive(e&&e.currentTarget)]]:[]));
+  h.appendChild(acts);
+  d.appendChild(h);
+  const body=el('div','libbody');
+  const rig=el('div','librig');
+  body.appendChild(rig);
+  const side=el('div','libside');
+  side.appendChild(el('h3',null,'Used in'));
+  const used=el('div','used'), L2='ABCDEF';
+  const sets=(S.songs||[]).filter(s=>s.scenes.some(sc=>sc.id===x.id));
+  sets.slice(0,3).forEach(s=>{ const i=s.scenes.findIndex(sc=>sc.id===x.id);
+    const b=el('button',null,esc(s.name)+'<span>SCENE '+(i<6?L2[i]:String(i+1))+'</span>');
+    b.onclick=()=>{ lib={tab:'sets',id:s.id,page:0,q:''}; renderLibrary(); }; used.appendChild(b); });
+  if(!sets.length) used.appendChild(el('div','help','Not in any set yet. Add it from a set’s + tile.'));
+  side.appendChild(used);
+  side.appendChild(el('h3',null,'History'));
+  const hist=el('div','hist');
+  (x.history||[]).slice(0,4).forEach((c,i)=>{ const r=el('div','hr'+(i===0?' cur':'')); r.innerHTML='<i></i><span style="font-family:var(--font-ui);font-size:12.5px;color:var(--muted)">'+esc(c.x)+'</span><span>'+esc(fmtWhen(c.t))+'</span>'; hist.appendChild(r); });
+  if(!(x.history||[]).length) hist.appendChild(el('div','help','Each save is noted here, with what changed.'));
+  side.appendChild(hist);
+  body.appendChild(side);
+  d.appendChild(body);
+  if(loaded) mountRig(rig); else rig.appendChild(rigPreview(x));
+}
+
+/* ═════════════════════════════ PACKS ═════════════════════════════ */
+const packPresets=p=>(S.presets||[]).filter(x=>p.builtin?(x.factory&&!x.packId):p.mine?(!x.factory&&!x.packId):x.packId===p.id);
+function packDetail(d,p){
+  const h=el('div','lhead phead');
+  h.appendChild(packCover(p,true));
+  const t=el('div'); t.style.cssText='flex:1;min-width:0';
+  t.innerHTML='<span class="cap">Preset pack</span><h1>'+esc(p.name)+'</h1><div class="ptags"><span class="k">BY '+esc(String(p.author||'').toUpperCase())+'</span><span class="k">'+p.count+(p.count===1?' PRESET':' PRESETS')+'</span></div>'
+    +(p.description?'<p class="help" style="margin:8px 0 0;max-width:560px">'+esc(p.description)+'</p>':'');
+  h.appendChild(t);
+  const btns=[];
+  if(!p.builtin) btns.push(['Share this pack','primary',()=>sharePack(p)]);
+  if(!p.builtin&&!p.mine) btns.push(['Remove pack','danger',()=>confirmBox('Remove “'+p.name+'”?','Its '+p.count+' presets come out of the Library and any set that uses them. You can install the pack again from its file.')
+    .then(ok=>{ if(ok) cmd('removePack',{id:p.id}).then(n=>{ lib.id=null; toast('Removed '+n+' presets'); }); })]);
+  h.appendChild(libActs(btns));
+  d.appendChild(h);
+  d.appendChild(el('h3','pinh','In this pack'));
+  const grid=el('div','pgrid'); d.appendChild(grid);
+  const list=packPresets(p), per=Math.max(3,Math.floor(((d.clientHeight||500)-260)/48))*3;
+  list.slice(0,per).forEach(x=>{ const b=el('button','pgi',esc(x.name)+'<span>'+esc((x.category||'').toUpperCase())+'</span>');
+    b.onclick=()=>{ lib={tab:'presets',id:x.id,page:0,q:'',cat:'All',src:p.builtin?'factory':p.mine?'mine':'pack:'+p.id}; renderLibrary(); }; grid.appendChild(b); });
+  if(list.length>per) d.appendChild(el('div','help','+ '+(list.length-per)+' more on the Presets tab.'));
+  if(!p.builtin) d.appendChild(el('div','sharehow','<b>How sharing works</b><ol><li><b>Share this pack</b> saves it as one file in Documents › Amanorsac Studio › '+esc(PRODUCT.name)+' › Packs and shows it to you.</li><li>Send the file any way you like: WhatsApp, email, Discord, a drive.</li><li>Whoever gets it drags it onto '+esc(PRODUCT.name)+'. Nothing goes online from the app.</li></ol>'));
+}
+function sharePack(p){
+  const ids=packPresets(p).map(x=>x.id);
+  if(!ids.length){ toast('This pack has no presets yet'); return; }
+  writePack({id:p.mine?'':p.id,name:p.mine?'My Presets':p.name,author:p.mine?'':p.author,description:p.description||'',colour:p.colour,ids});
+}
+function writePack(o){
+  cmd('writePack',o).then(r=>{
+    if(!r||!r.file){ toast('Could not write the pack'); return; }
+    const body=el('div','packdone');
+    body.appendChild(packCover(o,true));
+    body.appendChild(el('div','','<p style="margin:0 0 6px"><b>'+esc(r.file)+'</b> is in Documents › Amanorsac Studio › '+esc(PRODUCT.name)+' › Packs.</p><p class="help">Send it any way you like. Anyone with '+esc(PRODUCT.name)+' drags it onto the app to install it. '+o.ids.length+(o.ids.length===1?' preset, ':' presets, ')+Math.max(1,Math.round(r.bytes/1024))+' KB.</p>'));
+    openSheet({title:'Pack saved', body, actions:[{label:'Done',onClick:closeSheet},{label:'Show the file',kind:'primary',onClick:()=>{ closeSheet(); cmd('showPackFile'); }}]});
+  });
+}
+/** Make a pack: name, who made it, a few words, a cover colour, and the presets. */
+function openMakePack(pre){
+  const COLS=[0xff2a8fa8,0xff9c4a3f,0xffe3a447,0xff6f9f5a,0xff7b3fa0,0xff5d636b,0xffd9789b,0xff3f7fa0];
+  const st={ids:new Set((pre&&pre.ids)||[]),colour:COLS[0],cat:'All',page:0};
+  const body=el('div','makepack');
+  const L1=el('div');
+  const field=(label,node)=>{ const f=el('div','fld'); f.appendChild(el('span','cap',label)); f.appendChild(node); L1.appendChild(f); return node; };
+  const nm=field('Pack name',el('input','field')); nm.maxLength=60; nm.placeholder='Sunday Pads';
+  const au=field('Made by',el('input','field')); au.maxLength=60; au.placeholder='Your name';
+  try{ au.value=localStorage.getItem(PRODUCT.prefix+'.packAuthor')||''; }catch(_){}
+  const de=field('About it',el('textarea','field')); de.maxLength=500; de.rows=3; de.placeholder='What these presets are for';
+  const cols=el('div','pcols');
+  COLS.forEach(c=>{ const b=el('button','pcol'+(c===st.colour?' on':'')); b.style.background=packHex(c); b.setAttribute('aria-label','Cover colour');
+    b.onclick=()=>{ st.colour=c; [...cols.children].forEach(x=>x.classList.toggle('on',x===b)); }; cols.appendChild(b); });
+  field('Cover colour',cols);
+  L1.appendChild(el('div','okmsg','✓ Your audio interface, MIDI and settings never go in a pack — only sounds.'));
+  body.appendChild(L1);
+  const R1=el('div'); body.appendChild(R1);
+  const draw=()=>{
+    R1.innerHTML='';
+    const top=el('div','pkbar'); top.appendChild(el('b','','Choose presets'));
+    ['All','Mine',...(S.categories||[])].forEach(c=>{ const n=c==='All'?1:c==='Mine'?(S.presets||[]).filter(p=>!p.factory&&!p.packId).length:(S.presets||[]).filter(p=>p.category===c).length; if(!n) return;
+      const b=el('button','cchip'+(st.cat===c?' on':''),esc(c)); b.onclick=()=>{ st.cat=c; st.page=0; draw(); }; top.appendChild(b); });
+    R1.appendChild(top);
+    const all=(S.presets||[]).filter(p=>st.cat==='All'||(st.cat==='Mine'?(!p.factory&&!p.packId):p.category===st.cat));
+    const per=16, pages=Math.max(1,Math.ceil(all.length/per)); st.page=Math.min(st.page,pages-1);
+    const g=el('div','pick');
+    all.slice(st.page*per,st.page*per+per).forEach(p=>{ const on=st.ids.has(p.id);
+      const b=el('button','ck'+(on?' on':''),'<span class="box">'+(on?'✓':'')+'</span><span class="n">'+esc(p.name)+'</span><small>'+esc((p.category||'').toUpperCase())+'</small>');
+      b.onclick=()=>{ if(st.ids.has(p.id)) st.ids.delete(p.id); else if(st.ids.size<200) st.ids.add(p.id); draw(); }; g.appendChild(b); });
+    R1.appendChild(g);
+    const foot=el('div','pkfoot'); foot.appendChild(el('span','help',st.ids.size+' chosen · up to 200 in a pack'));
+    const pg=el('div','pager');
+    if(pages>1) for(let i=0;i<pages;i++){ const b=el('button',i===st.page?'on':'','<i></i>'); b.setAttribute('aria-label','Page '+(i+1)); b.onclick=()=>{ st.page=i; draw(); }; pg.appendChild(b); }
+    foot.appendChild(pg); R1.appendChild(foot);
+  };
+  draw();
+  openSheet({title:'Make a pack', body, wide:true, actions:[{label:'Cancel',onClick:closeSheet},{label:'Save pack file',kind:'primary',onClick:()=>{
+    const name=nm.value.trim();
+    if(!name){ nm.focus(); toast('Give the pack a name'); return; }
+    if(!st.ids.size){ toast('Choose at least one preset'); return; }
+    try{ localStorage.setItem(PRODUCT.prefix+'.packAuthor',au.value.trim()); }catch(_){}
+    closeSheet(); writePack({name,author:au.value.trim(),description:de.value.trim(),colour:st.colour,ids:[...st.ids]}); }}]});
+  setTimeout(()=>nm.focus(),50);
+}
+
+/* Installing: the file is read here, by the page, and its text is handed to the
+   engine, which checks every part of it before anything is added. */
+const PACK_MAX=8*1024*1024;
+function readPackFile(file){
+  if(!file) return;
+  const ext=(S.packExt||'.tepack').toLowerCase(), nm=String(file.name||'');
+  if(!/\.(tepack|lepack)$/i.test(nm)){ toast('That is not a preset pack ('+ext+' file)'); return; }
+  if(file.size>PACK_MAX){ toast('That file is too big to be a preset pack'); return; }
+  const fr=new FileReader();
+  fr.onload=()=>{ const text=String(fr.result||'');
+    cmd('readPack',{text}).then(r=>{ if(!r||!r.ok){ toast((r&&r.error)||'That pack could not be read'); return; } confirmInstall(r,text); }); };
+  fr.onerror=()=>toast('That file could not be read');
+  fr.readAsText(file);
+}
+function chooseAndReadPack(){
+  const i=document.createElement('input'); i.type='file'; i.accept='.tepack,.lepack';
+  i.onchange=()=>readPackFile(i.files&&i.files[0]); i.click();
+}
+function confirmInstall(r,text){
+  const info=r.info||{}, n=(r.presets||[]).length;
+  const body=el('div','installpk');
+  const L1=el('div'); L1.appendChild(packCover(info,true));
+  L1.appendChild(el('div','ptags','<span class="k">BY '+esc(String(info.author||'').toUpperCase())+'</span><span class="k">'+n+(n===1?' PRESET':' PRESETS')+'</span>'));
+  if(info.description) L1.appendChild(el('p','help',esc(info.description)));
+  body.appendChild(L1);
+  const R1=el('div'); R1.appendChild(el('b','','What will be added'));
+  const g=el('div','pgrid two');
+  (r.presets||[]).slice(0,10).forEach(p=>g.appendChild(el('div','pgi',esc(p.name)+'<span>'+esc(String(p.category||'').toUpperCase())+'</span>')));
+  R1.appendChild(g);
+  if(n>10) R1.appendChild(el('div','help','…and '+(n-10)+' more.'));
+  R1.appendChild(el('div','okmsg','✓ Checked: '+n+(n===1?' preset':' presets')+' for '+esc(PRODUCT.name)+', nothing but sounds.'
+    +(r.skipped?' '+r.skipped+(r.skipped===1?' pedal this version does not have was':' pedals this version does not have were')+' left out.':'')
+    +(r.installed?' You have this pack already; installing replaces it.':' Your own presets are not changed.')));
+  body.appendChild(R1);
+  openSheet({title:'Install “'+(info.name||'pack')+'”?', body, wide:true, actions:[{label:'Cancel',onClick:closeSheet},
+    {label:'Install '+n+(n===1?' preset':' presets'),kind:'primary',onClick:()=>{ closeSheet();
+      cmd('installPack',{text}).then(res=>{ if(!res||!res.ok){ toast((res&&res.error)||'Could not install'); return; }
+        lib={tab:'packs',id:info.id,page:0,q:''}; if(view!=='library') showView('library'); else renderLibrary();
+        toast('Installed '+res.added+' presets from '+info.name); }); }}]});
+}
+/* Drop a pack anywhere on the app to install it. */
+(()=>{
+  const ov=el('div','packdrop','<div>Drop to add it<small>A preset pack or an amp capture. It is checked before anything is added.</small></div>'); document.body.appendChild(ov);
+  const hasFile=e=>e.dataTransfer&&[...(e.dataTransfer.types||[])].indexOf('Files')>=0;
+  let depth=0;
+  window.addEventListener('dragenter',e=>{ if(!hasFile(e)||(view!=='library'&&view!=='rig')) return; depth++; ov.classList.add('on'); });
+  window.addEventListener('dragleave',e=>{ if(!hasFile(e)) return; if(--depth<=0){ depth=0; ov.classList.remove('on'); } });
+  window.addEventListener('dragover',e=>{ if(hasFile(e)) e.preventDefault(); });
+  window.addEventListener('drop',e=>{ if(!hasFile(e)) return; depth=0; ov.classList.remove('on');
+    const files=[...e.dataTransfer.files], f=files.find(f=>/\.(tepack|lepack)$/i.test(f.name)), nam=files.find(f=>/\.nam$/i.test(f.name));
+    if(nam){ e.preventDefault(); e.stopPropagation(); readCaptureFile(nam,r=>{ if(r&&view==='library'){ lib={tab:'captures',id:'nam:'+r.key,page:0,q:''}; renderLibrary(); } }); return; }
+    if(!f) return;                      // other files (songs, IRs) are handled where they are dropped
+    e.preventDefault(); e.stopPropagation(); readPackFile(f); },true);
+})();
 
 
 /* ═════════════════════════════ UNSAVED EDITS ═════════════════════════════
@@ -3907,6 +4624,7 @@ $('#btnBackup').onclick=()=>{ toast('Backing up…'); cmd('backup').then(p=>toas
 /* ═════════════════════════════ WIRING ═════════════════════════════ */
 function showView(v){
   view=v;
+  if(v!=='library') homeRig();          // the rig lives on the Rig page unless the Library is showing it
   document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on',s.id==='view-'+v));
   document.querySelectorAll('#tabs button').forEach(t=>t.classList.toggle('on',t.dataset.view===v));
   learnShow(v==='learn');

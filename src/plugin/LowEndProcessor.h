@@ -84,12 +84,18 @@ public:
 
     void loadRig (const Rig& r, bool crossfade = true);
     void rebuildChains (bool crossfade);
+    /// Your Amp: whether the rig's own amp and cab are in the path (see updateStageUse).
+    void updateStageUse();
+    struct StageGains { float constant = 1.0f; const float* ramp = nullptr; };
+    StageGains stageGains (juce::LinearSmoothedValue<float>& wet, int n, std::vector<float>& store);
+    template <typename Stage> void runStage (Stage& stage, juce::AudioBuffer<float>& b, int n, int nCh, const StageGains& g);
     void pushAllParams();
 
     /// Chain editing (message thread).
     bool addBlock (bool post, BlockType t, int index = -1);
     bool removeBlock (bool post, int index);
     bool moveBlock (bool post, int from, int to);
+    bool transferBlock (bool fromPost, int from, bool toPost, int to);
 
     //----------------------------------------------------------- performance
     RigLibrary& library() { return library_; }
@@ -325,7 +331,10 @@ private:
     /// AUDIO THREAD: a record stomp, from a footswitch (with its sample) or the UI.
     void handleLoopRecord (int offset) noexcept;
 
-    juce::AudioBuffer<float> diBuf_, synthBuf_, ampAltBuf_, rawBuf_;
+    juce::AudioBuffer<float> diBuf_, synthBuf_, ampAltBuf_, rawBuf_, skipBuf_;
+    std::atomic<bool> ampInUse_ { true }, cabInUse_ { true };
+    juce::LinearSmoothedValue<float> ampWet_ { 1.0f }, cabWet_ { 1.0f };
+    std::vector<float> ampGain_, cabGain_;
     FixedDelay rawDelay_;
     juce::SmoothedValue<float> bypassMix_;
     std::atomic<bool> bypassAll_ { false };

@@ -1,6 +1,8 @@
 // LowEndEditor.cpp — see header.
 #include "LowEndEditor.h"
 #include "LowEndUi.h"
+#include "../engine/PresetPacks.h"
+#include "../engine/NamModel.h"
 
 #if JUCE_WINDOWS
  #ifndef NOMINMAX
@@ -609,6 +611,9 @@ juce::var LowEndEditor::buildState() const
             set (o, "name", juce::String (b.name));
             set (o, "category", juce::String (b.category));
             set (o, "typeIndex", (int) b.type);
+            // Its controls at their defaults, so the pedal browser can draw the
+            // real faceplate before the pedal is on the board.
+            set (o, "params", sectionVar ("catalog." + juce::String (b.id), b.params, defaultBlockState (b.type).params));
             cat.add (o);
         }
         set (st, "catalog", cat);
@@ -623,6 +628,9 @@ juce::var LowEndEditor::buildState() const
             set (o, "id", r.id);
             set (o, "name", r.name);
             set (o, "colour", hex (r.colour));
+            set (o, "category", r.category);
+            set (o, "factory", r.factoryKey.isNotEmpty());
+            if (r.packId.isNotEmpty()) { set (o, "packId", r.packId); set (o, "packName", r.packName); set (o, "packAuthor", r.packAuthor); }
             // What the Library needs to draw a preset without loading it: its
             // chain at a glance and its history.
             auto pv = [] (const ParamValues& v, const char* k, float d) { auto it = v.find (k); return it == v.end() ? d : it->second; };
@@ -657,6 +665,15 @@ juce::var LowEndEditor::buildState() const
         }
         set (st, "presets", presets);
 
+        // Preset packs the player installed, and the categories the Library filters by.
+        juce::Array<juce::var> installed;
+        for (auto& i : packs::installed()) installed.add (packs::infoToVar (i));
+        set (st, "packs", installed);
+        set (st, "packExt", packs::extension());
+        juce::Array<juce::var> cats;
+        for (auto* c : factoryCategories()) cats.add (juce::String (c));
+        set (st, "categories", cats);
+
         juce::Array<juce::var> songs;
         for (auto& s : proc_.library().songs())
         {
@@ -683,6 +700,18 @@ juce::var LowEndEditor::buildState() const
         juce::Array<juce::var> irs;
         for (auto& f : proc_.library().irs()) irs.add (juce::File (f).getFileNameWithoutExtension());
         set (st, "irs", irs);
+
+        // Your Amp: the captures in the Amp Captures folder, each with the key a
+        // preset keeps for it.
+        juce::Array<juce::var> caps;
+        for (auto& f : proc_.library().captures())
+        {
+            auto c = obj();
+            set (c, "key", NamModel::keyFor (f));
+            set (c, "name", juce::File::createFileWithoutCheckingPath (f).getFileNameWithoutExtension());
+            caps.add (c);
+        }
+        set (st, "captures", caps);
     }
 
     // Control map
@@ -828,6 +857,9 @@ juce::var LowEndEditor::runCommand (const juce::String& name, const juce::var& a
     }
     if (name == "removeBlock") return proc_.removeBlock (str ("chain") == "post", (int) num ("index", -1));
     if (name == "moveBlock")   return proc_.moveBlock (str ("chain") == "post", (int) num ("from", -1), (int) num ("to", -1));
+    if (name == "transferBlock")
+        return proc_.transferBlock (str ("from") == "post", (int) num ("fromIndex", -1),
+                                    str ("to") == "post", (int) num ("toIndex", -1));
 
     if (name == "loadPreset") { proc_.loadPreset (str ("id")); return true; }
     if (name == "loadSong")   { proc_.loadSong (str ("id"), (int) num ("scene", 0)); return true; }
@@ -909,6 +941,130 @@ juce::var LowEndEditor::runCommand (const juce::String& name, const juce::var& a
         }
         return false;
     }
+    if (name == "setCategory")
+    {
+        const auto id = str ("id");
+        const auto cat = packs::cleanText (a.getProperty ("category", {}), 24);
+        if (const auto* p = proc_.library().findPreset (id))
+        {
+            auto r = *p;
+            r.category = cat;
+            proc_.library().savePreset (r);
+            if (proc_.currentPresetId() == id) proc_.editableRig().category = cat;
+            stateDirty_ = true;
+            return true;
+        }
+        return false;
+    }
+
+    //---------------------------------------------------------- preset packs
+    // A pack arrives as the text of a file the player dropped or chose; the
+    // page reads it (so no path from the page is ever opened here) and every
+    // byte of it is checked in packs::fromText before anything is installed.
+    if (name == "readPack" || name == "installPack")
+    {
+        packs::Pack pack;
+        const auto res = packs::fromText (str ("text"), pack);
+        auto o = obj();
+        set (o, "ok", res.wasOk());
+        set (o, "error", res.getErrorMessage());
+        if (res.failed()) return o;
+        if (name == "installPack")
+        {
+            set (o, "added", packs::install (proc_.library(), pack));
+            stateDirty_ = true;
+            return o;
+        }
+        set (o, "info", packs::infoToVar (pack.info));
+        set (o, "skipped", pack.skippedPedals);
+        bool already = false;
+        for (auto& i : packs::installed()) already = already || i.id == pack.info.id;
+        set (o, "installed", already);
+        juce::Array<juce::var> list;
+        for (auto& r : pack.presets)
+        {
+            auto e = obj();
+            set (e, "name", r.name);
+            set (e, "category", r.category);
+            list.add (e);
+        }
+        set (o, "presets", list);
+        return o;
+    }
+    if (name == "removePack")
+    {
+        const int n = packs::remove (proc_.library(), str ("id"));
+        stateDirty_ = true;
+        return n;
+    }
+    if (name == "writePack")
+    {
+        auto ids = a.getProperty ("ids", {});
+        if (! ids.isArray() || ids.size() == 0) return false;
+        juce::StringArray list;
+        for (auto& v : *ids.getArray()) list.add (v.toString());
+        packs::Info info;
+        info.name = str ("name");
+        info.author = str ("author");
+        info.description = str ("description");
+        info.colour = (juce::uint32) juce::jlimit (0.0, 4294967295.0, (double) a.getProperty ("colour", (double) 0xff2a8fa8)) | 0xff000000u;
+        info.id = str ("id");     // re-exporting an installed pack keeps its identity
+        const auto file = packs::write (proc_.library(), info, list);
+        if (! file.existsAsFile()) return false;
+        auto o = obj();
+        set (o, "file", file.getFileName());
+        set (o, "bytes", (double) file.getSize());
+        lastPackFile_ = file;
+        return o;
+    }
+    if (name == "showPackFile")
+    {
+        // Only ever the file this session wrote, or the folder itself.
+        if (lastPackFile_.existsAsFile() && lastPackFile_.isAChildOf (packsDir())) lastPackFile_.revealToUser();
+        else { packsDir().createDirectory(); packsDir().revealToUser(); }
+        return true;
+    }
+    //---------------------------------------------------------- Your Amp captures
+    // Like a pack, a capture arrives as the text of a file the player chose or
+    // dropped: nothing from the page is ever opened as a path. It is built and
+    // timed (NamModel) before it is copied into the Amp Captures folder.
+    if (name == "importCapture")
+    {
+        auto o = obj();
+        const auto text = str ("text");
+        juce::String err;
+        NamModel::Info info;
+        if (! NamModel::check (text, err, &info)) { set (o, "ok", false); set (o, "error", err); return o; }
+        auto base = juce::File::createLegalFileName (str ("name").upToLastOccurrenceOf (".", false, false).trim()).substring (0, 80);
+        if (base.isEmpty()) base = info.name.isNotEmpty() ? juce::File::createLegalFileName (info.name) : juce::String ("My Amp");
+        namDir().createDirectory();
+        auto file = namDir().getChildFile (base + ".nam");
+        for (int k = 2; file.existsAsFile() && file.loadFileAsString() != text && k < 100; ++k)
+            file = namDir().getChildFile (base + " (" + juce::String (k) + ").nam");
+        if (! file.existsAsFile() && ! file.replaceWithText (text, false, false, nullptr))
+        {
+            set (o, "ok", false); set (o, "error", "The capture could not be saved."); return o;
+        }
+        proc_.library().scan();
+        stateDirty_ = true;
+        set (o, "ok", true);
+        set (o, "key", NamModel::keyFor (file.getFileName()));
+        set (o, "name", file.getFileNameWithoutExtension());
+        set (o, "gear", info.gear);
+        set (o, "rate", info.modelRate);
+        return o;
+    }
+    if (name == "removeCapture")
+    {
+        const auto f = NamModel::fileFor ((int) num ("key", 0.0), namDir());
+        if (! f.existsAsFile() || ! f.isAChildOf (namDir())) return false;
+        const bool ok = f.moveToTrash();
+        proc_.library().scan();
+        stateDirty_ = true;
+        return ok;
+    }
+    if (name == "showCaptures") { namDir().createDirectory(); namDir().revealToUser(); return true; }
+
     if (name == "deletePreset") { const bool ok = proc_.library().deletePreset (str ("id")); stateDirty_ = true; return ok; }
 
     //---------------------------------------------------------- songs and scenes

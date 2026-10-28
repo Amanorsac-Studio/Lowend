@@ -67,6 +67,7 @@ private:
     bool ytVisible_ = false;
     int ytPollTicks_ = 0;
     bool stateDirty_ = true;
+    juce::File lastPackFile_;          // the pack this session last wrote, for "Show the file"
     int ticksSinceState_ = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LowEndEditor)

@@ -44,6 +44,23 @@ HT-Demucs v4 (Hybrid Transformer Demucs), the separation model
   and demucs.cpp (Copyright (c) Sevag Hanssian, MIT Licence).
 
 
+YOUR AMP (NEURAL AMP MODELER CAPTURES)
+
+NeuralAmpModelerCore 0.6.0
+  Copyright (c) 2023 Steven Atkinson. MIT Licence.
+  https://github.com/sdatkinson/NeuralAmpModelerCore
+
+nlohmann/json 3.12.0 (as shipped inside NeuralAmpModelerCore)
+  Copyright (c) 2013-2025 Niels Lohmann. MIT Licence.
+  https://github.com/nlohmann/json
+
+Eigen (revision bc3b39870ecb690a623a3f49149a358b95c5781d)
+  Copyright (c) the Eigen authors. Mozilla Public Licence 2.0; built with
+  EIGEN_MPL2_ONLY, so only its MPL-2.0 code is used. Eigen is used unmodified,
+  and its source is available at https://gitlab.com/libeigen/eigen. The full
+  text of the MPL 2.0 is at https://mozilla.org/MPL/2.0/.
+
+
 FONTS (all shipped inside the product; none is fetched at run time)
 
 Inter 4.x - Copyright (c) The Inter Project Authors. SIL Open Font Licence 1.1.
@@ -52,8 +69,8 @@ Barlow Semi Condensed - Copyright (c) The Barlow Project Authors.
   SIL Open Font Licence 1.1.
 
 
-THE MIT LICENCE (applies to ONNX Runtime, HT-Demucs, the Intel export and
-demucs.cpp)
+THE MIT LICENCE (applies to ONNX Runtime, HT-Demucs, the Intel export,
+demucs.cpp, NeuralAmpModelerCore and nlohmann/json)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -37,6 +37,7 @@ LowEndProcessor::LowEndProcessor()
 
     preChain_.setCapacity (kMaxPreBlocks);
     postChain_.setCapacity (kMaxPostBlocks);
+    NamBlock::folder() = namDir();
 
     library_.generateFactoryIfNeeded();
     library_.scan();
@@ -166,7 +167,14 @@ void LowEndProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     diBuf_.setSize (2, maxBlock_);
     rawBuf_.setSize (2, maxBlock_);
     ampAltBuf_.setSize (2, maxBlock_);
+    skipBuf_.setSize (2, maxBlock_);
+    ampGain_.assign ((size_t) maxBlock_, 1.0f);
+    cabGain_.assign ((size_t) maxBlock_, 1.0f);
     synthBuf_.setSize (1, maxBlock_);
+    ampWet_.reset (sr_, 0.02);
+    cabWet_.reset (sr_, 0.02);
+    ampWet_.setCurrentAndTargetValue (ampInUse_.load() ? 1.0f : 0.0f);
+    cabWet_.setCurrentAndTargetValue (cabInUse_.load() ? 1.0f : 0.0f);
 
     xfadeLength_ = (int) (sr_ * 0.025);
     xfadeRemaining_ = 0;
@@ -609,6 +617,12 @@ void LowEndProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     preChain_.process (buffer, bpm);
 
     //------------------------------------------------------------- amp + cab
+    // A Your Amp pedal can take the rig's own amp, and its cab, out of the path.
+    ampWet_.setTargetValue (ampInUse_.load (std::memory_order_relaxed) ? 1.0f : 0.0f);
+    cabWet_.setTargetValue (cabInUse_.load (std::memory_order_relaxed) ? 1.0f : 0.0f);
+    const auto ampG = stageGains (ampWet_, n, ampGain_), cabG = stageGains (cabWet_, n, cabGain_);
+    auto runAmp = [&] (int i, juce::AudioBuffer<float>& b) { runStage (amp_[(size_t) i], b, n, nCh, ampG); };
+    auto runCab = [&] (int i, juce::AudioBuffer<float>& b) { runStage (cab_[(size_t) i], b, n, nCh, cabG); };
     if (xfadeRemaining_ > 0)
     {
         // Both rigs render; equal-power crossfade between them. 25 ms, so the
@@ -618,10 +632,10 @@ void LowEndProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         if (ampAltBuf_.getNumSamples() < n) ampAltBuf_.setSize (2, n, false, false, true);
         for (int ch = 0; ch < nCh; ++ch) ampAltBuf_.copyFrom (ch, 0, buffer, ch, 0, n);
 
-        amp_[(size_t) activeAmp_].process (buffer);
-        cab_[(size_t) activeAmp_].process (buffer);
-        amp_[(size_t) incoming].process (ampAltBuf_);
-        cab_[(size_t) incoming].process (ampAltBuf_);
+        runAmp (activeAmp_, buffer);
+        runCab (activeAmp_, buffer);
+        runAmp (incoming, ampAltBuf_);
+        runCab (incoming, ampAltBuf_);
 
         for (int i = 0; i < n; ++i)
         {
@@ -639,8 +653,8 @@ void LowEndProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     }
     else
     {
-        amp_[(size_t) activeAmp_].process (buffer);
-        cab_[(size_t) activeAmp_].process (buffer);
+        runAmp (activeAmp_, buffer);
+        runCab (activeAmp_, buffer);
     }
     meters_.ampSupply.store (amp_[(size_t) activeAmp_].supply());
 
@@ -793,6 +807,7 @@ bool LowEndProcessor::setPath (const juce::String& path, float value, bool notif
         auto& chain = section == "pre" ? preChain_ : postChain_;
         if (param == "bypass") chain.setBypassed (index, value >= 0.5f);
         else chain.setParam (index, param.toStdString(), value);
+        updateStageUse();
     }
     else if (path.startsWith ("amp.")) amp_[(size_t) targetAmp()].setParams (rig_.amp);
     else if (path.startsWith ("cab."))
@@ -825,8 +840,58 @@ void LowEndProcessor::pushAllParams()
     looper_.setParams (rig_.loop);
 }
 
+//------------------------------------------------------------- Your Amp
+/// AUDIO THREAD. The gains a stage's output gets this block: 1 is the stage as
+/// usual, 0 is the stage left out, and in between a 20 ms fade (no click).
+LowEndProcessor::StageGains LowEndProcessor::stageGains (juce::LinearSmoothedValue<float>& wet, int n, std::vector<float>& store)
+{
+    StageGains g;
+    if (! wet.isSmoothing()) { g.constant = wet.getCurrentValue(); return g; }
+    if ((int) store.size() < n) { g.constant = wet.getTargetValue(); wet.skip (n); return g; }
+    for (int i = 0; i < n; ++i) store[(size_t) i] = wet.getNextValue();
+    g.ramp = store.data();
+    return g;
+}
+
+template <typename Stage>
+void LowEndProcessor::runStage (Stage& stage, juce::AudioBuffer<float>& b, int n, int nCh, const StageGains& g)
+{
+    if (g.ramp == nullptr && g.constant >= 1.0f) { stage.process (b); return; }
+    if (g.ramp == nullptr && g.constant <= 0.0f) return;     // left out: costs nothing
+    for (int ch = 0; ch < nCh; ++ch) skipBuf_.copyFrom (ch, 0, b, ch, 0, n);
+    stage.process (b);
+    for (int ch = 0; ch < nCh; ++ch)
+    {
+        auto* w = b.getWritePointer (ch);
+        const auto* dry = skipBuf_.getReadPointer (ch);
+        for (int i = 0; i < n; ++i)
+        {
+            const float k = g.ramp ? g.ramp[i] : g.constant;
+            w[i] = dry[i] + k * (w[i] - dry[i]);
+        }
+    }
+}
+
+/// MESSAGE THREAD. Whether the rig's own amp and cab run: a Your Amp pedal that
+/// is on and has a capture chosen can switch either off.
+void LowEndProcessor::updateStageUse()
+{
+    bool amp = true, cab = true;
+    for (const auto* chain : { &rig_.pre, &rig_.post })
+        for (const auto& b : *chain)
+        {
+            if (b.type != BlockType::nam || b.bypassed) continue;
+            if (mapValue (b.params, "capture", 0.0f) < 0.5f) continue;
+            if (mapValue (b.params, "amp", 0.0f) < 0.5f) amp = false;
+            if (mapValue (b.params, "cab", 1.0f) < 0.5f) cab = false;
+        }
+    ampInUse_.store (amp);
+    cabInUse_.store (cab);
+}
+
 void LowEndProcessor::rebuildChains (bool crossfade)
 {
+    updateStageUse();
     if (crossfade)
     {
         preChain_.applyStructuralChange (rig_.pre);
@@ -895,6 +960,24 @@ bool LowEndProcessor::moveBlock (bool post, int from, int to)
     auto moved = chain[(size_t) from];
     chain.erase (chain.begin() + from);
     chain.insert (chain.begin() + to, std::move (moved));
+    rebuildChains (true);
+    sendChangeMessage();
+    return true;
+}
+
+/// Moves a pedal across the amp (in front of it <-> after the cab), settings and
+/// all. Refused, with nothing changed, when the other side is full.
+bool LowEndProcessor::transferBlock (bool fromPost, int from, bool toPost, int to)
+{
+    if (fromPost == toPost) return moveBlock (fromPost, from, to);
+    auto& src = fromPost ? rig_.post : rig_.pre;
+    auto& dst = toPost ? rig_.post : rig_.pre;
+    const int cap = toPost ? kMaxPostBlocks : kMaxPreBlocks;
+    if (from < 0 || from >= (int) src.size() || (int) dst.size() >= cap) return false;
+    const int at = to < 0 || to > (int) dst.size() ? (int) dst.size() : to;
+    auto moved = src[(size_t) from];
+    src.erase (src.begin() + from);
+    dst.insert (dst.begin() + at, std::move (moved));
     rebuildChains (true);
     sendChangeMessage();
     return true;

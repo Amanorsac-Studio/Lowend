@@ -18,6 +18,8 @@
 #include <vector>
 #include "BlockParams.h"
 #include "DspCommon.h"
+#include "PitchTrack.h"
+#include "NamModel.h"
 
 namespace lowend {
 
@@ -771,6 +773,296 @@ private:
 };
 
 //==============================================================================
+/// Bow — a bass heard as a bowed string. What makes a plucked note read as
+/// bowed, in the order it happens:
+///   - the attack: each new note is caught and swelled in, so the pick vanishes
+///     (a bow starts a note from nothing);
+///   - the sustain: quiet tails are lifted, so the note holds like a bow does;
+///   - the vibrato: a player's, which arrives a moment after the note starts;
+///   - the body: a cello's, double bass's or viola's resonances and its rolled-off top;
+///   - the rosin: a breath of filtered noise that follows the note.
+/// All of it is per voice-free processing, so a chord becomes a section.
+class BowBlock final : public Block
+{
+public:
+    BowBlock() : Block (BlockType::bow) {}
+    void prepare (double sr, int) override
+    {
+        sr_ = sr;
+        fast_.prepare (sr); fast_.setTimes (1.0f, 35.0f);
+        slow_.prepare (sr); slow_.setTimes (30.0f, 260.0f);
+        delay_.assign ((size_t) (std::ceil (sr * 0.012) + 4), 0.0f);
+        for (auto& d : line_) d.assign (delay_.size(), 0.0f);
+        voice_ = -1;
+        tracker_.prepare (sr);
+        reset();
+    }
+    void reset() override
+    {
+        fast_.reset(); slow_.reset();
+        tracker_.reset(); hz_ = 0.0f; targetHz_ = 0.0f; oscPhase_ = 0.0; soloAmp_ = 0.0f; soloMix_ = 0.0f; tone_.reset();
+        for (auto& d : line_) std::fill (d.begin(), d.end(), 0.0f);
+        for (auto& c : eq_) for (auto& f : c) f.reset();
+        for (auto& f : rosin_) f.reset();
+        write_ = 0; swell_ = 1.0f; duck_ = 0; vib_ = 0.0f; phase_ = 0.0; sinceOnset_ = 1 << 20; held_ = 0.0f;
+    }
+    void process (juce::AudioBuffer<float>& b, double) override
+    {
+        const int n = b.getNumSamples(), nCh = juce::jmin (2, b.getNumChannels());
+        if (n <= 0 || nCh <= 0 || delay_.empty()) return;
+        const float sr = (float) sr_;
+        // Swell: 25 ms (a quick bow) to 1.2 s (a slow swell), on an exponential knob.
+        const float swellMs = 25.0f * std::pow (48.0f, p (0) / 100.0f);
+        const float swellCoef = 1.0f - std::exp (-1.0f / (0.001f * swellMs * sr));
+        const float vibDepth = (p (1) / 100.0f) * 0.00042f * sr;    // up to about 25 cents
+        const float body = p (2) / 100.0f;
+        const float rosin = (p (3) / 100.0f) * 0.05f;
+        const int voice = juce::jlimit (0, 2, (int) std::round (p (4)));
+        const float out = juce::Decibels::decibelsToGain ((p (5) / 100.0f - 0.5f) * 24.0f);
+        if (voice != voice_ || std::abs (body - body_) > 0.002f) setBody (voice, body);
+        const bool solo = p (6) >= 0.5f;
+        const float mixInc = 1.0f / (0.02f * sr);                   // Section <-> Solo fades over 20 ms
+        const float glide = 1.0f - std::exp (-1.0f / (0.03f * sr)); // a player's slide between notes
+        const float ampFollow = 1.0f - std::exp (-1.0f / (0.008f * sr));
+
+        const int size = (int) delay_.size();
+        const float base = 0.0035f * sr;                            // the vibrato swings around 3.5 ms
+        const float vibInc = (float) (2.0 * juce::MathConstants<double>::pi * 5.6 / sr_);
+        const float vibRise = 1.0f - std::exp (-1.0f / (0.35f * sr));   // vibrato arrives over ~350 ms
+        const int vibWait = (int) (0.18f * sr);                     // ...after the note has spoken
+        const int duckLen = juce::jmax (1, (int) (0.003f * sr));    // 3 ms to silence the pick, no click
+        const int refractory = (int) (0.07f * sr);
+
+        auto* l = b.getWritePointer (0);
+        auto* r = nCh > 1 ? b.getWritePointer (1) : nullptr;
+        for (int i = 0; i < n; ++i)
+        {
+            const float mono = r ? 0.5f * (l[i] + r[i]) : l[i];
+            const float f = fast_.process (mono), s = slow_.process (mono);
+            // A new note: a sharp rise well above what was already sounding.
+            if (f > 0.004f && f > s * 2.4f && sinceOnset_ > refractory) { duck_ = duckLen; sinceOnset_ = 0; vib_ = 0.0f; }
+            ++sinceOnset_;
+            if (duck_ > 0) { swell_ *= 0.0f + (float) (duck_ - 1) / (float) duck_; --duck_; }
+            else swell_ += swellCoef * (1.0f - swell_);
+            // Hold the note up: up to +15 dB on a fading tail, none on silence.
+            held_ += 0.0005f * ((s > 0.0008f ? juce::jlimit (1.0f, 5.6f, 0.09f / s) : 1.0f) - held_);
+            if (sinceOnset_ > vibWait) vib_ += vibRise * (1.0f - vib_);
+            phase_ += vibInc; if (phase_ > juce::MathConstants<double>::twoPi) phase_ -= juce::MathConstants<double>::twoPi;
+            const float d = base + vibDepth * vib_ * (float) std::sin (phase_);
+            float rp = (float) write_ - d; while (rp < 0.0f) rp += (float) size;
+            const int i0 = (int) rp % size, i1 = (i0 + 1) % size; const float fr = rp - std::floor (rp);
+            const float noise = rosin > 0.0f ? rosin * swell_ * juce::jmin (1.0f, s * 30.0f) * (rng_.nextFloat() * 2.0f - 1.0f) : 0.0f;
+            const float g = swell_ * held_ * out;
+
+            // Solo: follow the pitch of the line being played and sound it on a bowed
+            // string (the stick-slip of a bow makes a sawtooth). The tracker runs in
+            // Section too, so switching modes never starts from an unknown pitch.
+            tracker_.pushSample (mono);
+            if (tracker_.hopDue())
+            {
+                const auto& res = tracker_.analyse();
+                if (res.voiced) { targetHz_ = res.hz; if (hz_ <= 0.0f) hz_ = targetHz_; }
+            }
+            soloMix_ = juce::jlimit (0.0f, 1.0f, soloMix_ + (solo ? mixInc : -mixInc));
+            float bowed = 0.0f;
+            if (soloMix_ > 0.0f && hz_ > 0.0f)
+            {
+                hz_ += glide * (targetHz_ - hz_);
+                // the same delayed vibrato, applied to the string's pitch: up to 1/3 semitone
+                const float pitch = hz_ * (1.0f + 0.019f * (p (1) / 100.0f) * vib_ * (float) std::sin (phase_));
+                const double dt = juce::jlimit (0.0, 0.45, (double) pitch / sr_);
+                oscPhase_ += dt; if (oscPhase_ >= 1.0) oscPhase_ -= 1.0;
+                bowed = (float) (2.0 * oscPhase_ - 1.0 - polyBlep (oscPhase_, dt));
+                soloAmp_ += ampFollow * (juce::jmin (0.5f, s * 1.1f) - soloAmp_);
+                bowed = tone_.process (bowed) * soloAmp_;
+            }
+            for (int ch = 0; ch < nCh; ++ch)
+            {
+                auto* x = ch == 0 ? l : r;
+                auto& dl = line_[(size_t) ch];
+                dl[(size_t) write_] = x[i];
+                float y = dl[(size_t) i0] + fr * (dl[(size_t) i1] - dl[(size_t) i0]);
+                // a little of the guitar stays under the string, as a player's fingers would
+                y = y * (1.0f - 0.85f * soloMix_) + bowed * soloMix_;
+                y += rosin_[(size_t) ch].process (noise);
+                for (auto& eq : eq_[(size_t) ch]) y = eq.process (y);
+                x[i] = y * g;
+            }
+            write_ = (write_ + 1) % size;
+        }
+    }
+private:
+    void setBody (int voice, float body)
+    {
+        voice_ = voice; body_ = body;
+        // high-pass, two resonances, a boxy dip, the roll-off at the top
+        struct V { float hp, lowF, lowDb, hiF, hiDb, dipF, dipDb, lp; };
+        static constexpr V vs[3] { {  65.0f, 180.0f, 4.0f, 1300.0f, 3.0f,  600.0f, -2.5f, 5500.0f },   // cello
+                                   {  38.0f, 110.0f, 4.5f,  900.0f, 3.0f,  420.0f, -2.5f, 4200.0f },   // double bass
+                                   { 130.0f, 230.0f, 3.5f, 2300.0f, 4.0f, 1100.0f, -2.5f, 7500.0f } }; // viola
+        const auto& v = vs[voice];
+        for (auto& c : eq_)
+        {
+            c[0].setHighPass (sr_, v.hp, 0.71f);
+            c[1].setPeak (sr_, v.lowF, 1.2f, v.lowDb * body);
+            c[2].setPeak (sr_, v.hiF, 1.0f, v.hiDb * body);
+            c[3].setPeak (sr_, v.dipF, 1.5f, v.dipDb * body);
+            c[4].setLowPass (sr_, v.lp + (1.0f - body) * 6000.0f, 0.71f);
+        }
+        for (auto& f : rosin_) f.setBandPass (sr_, voice == 1 ? 1800.0f : voice == 0 ? 2500.0f : 3500.0f, 0.8f);
+        tone_.setLowPass (sr_, v.lp * 0.7f, 0.6f);    // the string's own top, before the body
+    }
+    static double polyBlep (double t, double dt) noexcept
+    {
+        if (t < dt) { t /= dt; return t + t - t * t - 1.0; }
+        if (t > 1.0 - dt) { t = (t - 1.0) / dt; return t * t + t + t + 1.0; }
+        return 0.0;
+    }
+    double sr_ = 48000;
+    PitchTracker tracker_;
+    Biquad tone_;
+    float hz_ = 0.0f, targetHz_ = 0.0f, soloAmp_ = 0.0f, soloMix_ = 0.0f;
+    double oscPhase_ = 0.0;
+    EnvFollower fast_, slow_;
+    std::vector<float> delay_;
+    std::array<std::vector<float>, 2> line_;
+    std::array<std::array<Biquad, 5>, 2> eq_;
+    std::array<Biquad, 2> rosin_;
+    juce::Random rng_ { 0x0b0e };
+    int write_ = 0, duck_ = 0, sinceOnset_ = 0, voice_ = -1;
+    float swell_ = 1.0f, vib_ = 0.0f, held_ = 1.0f, body_ = -1.0f;
+    double phase_ = 0.0;
+};
+
+//==============================================================================
+/// Your Amp — a player's own amp, from a Neural Amp Modeler capture (.nam; see
+/// NamModel.h). The capture is built on a background thread and handed to the
+/// audio thread through an atomic; nothing is parsed, allocated or freed on the
+/// audio thread. Until a capture is ready the pedal passes the signal through.
+/// The `amp` and `cab` switches tell the processor whether the rig's own amp and
+/// cab still run after it (a capture of a whole rig wants neither).
+class NamBlock final : public Block
+{
+public:
+    NamBlock() : Block (BlockType::nam), shared_ (std::make_shared<Shared>()) {}
+    ~NamBlock() override
+    {
+        shared_->alive.store (false);
+        delete current_;
+    }
+    /// Where captures are found. Set once by the processor at start-up.
+    static juce::File& folder() { static juce::File f; return f; }
+
+    void prepare (double sr, int maxBlock) override
+    {
+        sr_ = sr; maxBlock_ = juce::jmax (16, maxBlock);
+        mono_.assign ((size_t) maxBlock_, 0.0f);
+        requestLoad();
+    }
+    void reset() override {}
+    int latencySamples() const override { return latency_.load (std::memory_order_relaxed); }
+    /// True once the chosen capture is running (for tests and the UI).
+    bool hasCapture() const noexcept { return loaded_.load (std::memory_order_relaxed); }
+
+    void process (juce::AudioBuffer<float>& b, double) override
+    {
+        const int n = juce::jmin (b.getNumSamples(), (int) mono_.size()), nCh = juce::jmin (2, b.getNumChannels());
+        if (n <= 0 || nCh <= 0) return;
+        adoptIncoming();
+        if (current_ == nullptr) return;                       // nothing loaded: straight through
+        const float inG = juce::Decibels::decibelsToGain (p (1));
+        // Loud and quiet captures come out at the same level (NAM's own -18 dB reference).
+        const float norm = current_->info().hasLoudness ? juce::Decibels::decibelsToGain ((float) (-18.0 - current_->info().loudnessDb)) : 1.0f;
+        const float outG = juce::Decibels::decibelsToGain (p (2)) * norm;
+        const auto* l = b.getReadPointer (0);
+        const auto* r = nCh > 1 ? b.getReadPointer (1) : nullptr;
+        for (int i = 0; i < n; ++i) mono_[(size_t) i] = inG * (r ? 0.5f * (l[i] + r[i]) : l[i]);
+        current_->process (mono_.data(), n);
+        for (int ch = 0; ch < nCh; ++ch)
+        {
+            auto* w = b.getWritePointer (ch);
+            for (int i = 0; i < n; ++i) w[i] = outG * mono_[(size_t) i];
+        }
+    }
+
+protected:
+    // setState hands every parameter to a kept block again after any change to the
+    // board, so only a different capture is a reason to load.
+    void onParamChanged (int i, float v) override { if (i == 0 && (int) std::round (v) != requestedKey_) requestLoad(); }
+
+private:
+    struct Shared
+    {
+        std::atomic<bool> alive { true };
+        std::atomic<int> wanted { 0 }, published { 0 };
+        std::atomic<NamModel*> incoming { nullptr };          // built, waiting for the audio thread
+        std::array<std::atomic<NamModel*>, 2> retired {};     // handed back, waiting to be freed
+        void clearRetired() { for (auto& r : retired) delete r.exchange (nullptr); }
+        ~Shared() { delete incoming.exchange (nullptr); clearRetired(); }
+    };
+    static juce::ThreadPool& pool()
+    {
+        static juce::ThreadPool p { juce::ThreadPoolOptions{}.withThreadName ("Amp captures").withNumberOfThreads (1) };
+        return p;
+    }
+    float p (int i) const { return getParam (i); }
+
+    /// Any thread that edits the model (the message thread). Cheap: it only queues.
+    void requestLoad()
+    {
+        if (sr_ <= 0) return;
+        const int gen = ++shared_->wanted;
+        const int key = (int) std::round (getParam (0));
+        requestedKey_ = key;
+        pool().addJob ([sh = shared_, gen, key, sr = sr_, max = maxBlock_, dir = folder()]
+        {
+            if (! sh->alive.load() || sh->wanted.load() != gen) return;
+            sh->clearRetired();
+            std::unique_ptr<NamModel> m;
+            if (key > 0)
+                if (auto f = NamModel::fileFor (key, dir); f.existsAsFile())
+                {
+                    juce::String err;
+                    m = NamModel::fromFile (f, sr, max, err);
+                    if (! m) juce::Logger::writeToLog ("Your Amp: " + f.getFileName() + ": " + err);
+                }
+            if (sh->wanted.load() != gen) return;              // a newer choice is on its way
+            delete sh->incoming.exchange (m.release());
+            sh->published.store (gen, std::memory_order_release);
+        });
+    }
+    /// AUDIO THREAD. Swap in what the loader published; the old one goes back to it.
+    void adoptIncoming() noexcept
+    {
+        const int pub = shared_->published.load (std::memory_order_acquire);
+        if (pub == seen_) return;
+        seen_ = pub;
+        NamModel* next = shared_->incoming.exchange (nullptr);
+        if (NamModel* old = current_)
+        {
+            NamModel* expected = nullptr;
+            if (! shared_->retired[0].compare_exchange_strong (expected, old))
+            {
+                expected = nullptr;
+                shared_->retired[1].compare_exchange_strong (expected, old);   // (both full cannot happen; see the loader)
+            }
+        }
+        current_ = next;
+        loaded_.store (next != nullptr, std::memory_order_relaxed);
+        latency_.store (next ? next->latencySamples() : 0, std::memory_order_relaxed);
+    }
+
+    std::shared_ptr<Shared> shared_;
+    NamModel* current_ = nullptr;                              // audio thread's
+    int seen_ = 0, requestedKey_ = -1;
+    std::atomic<int> latency_ { 0 };
+    std::atomic<bool> loaded_ { false };
+    double sr_ = 0.0;
+    int maxBlock_ = 512;
+    std::vector<float> mono_;
+};
+
+//==============================================================================
 inline std::unique_ptr<Block> createBlock (BlockType t)
 {
     const auto& s = blockSpec (t);
@@ -787,6 +1079,8 @@ inline std::unique_ptr<Block> createBlock (BlockType t)
         case BlockType::graphicEq: return std::make_unique<GraphicEqBlock>();
         case BlockType::envFilter: return std::make_unique<EnvFilterBlock>();
         case BlockType::octaver:   return std::make_unique<OctaverBlock>();
+        case BlockType::bow:       return std::make_unique<BowBlock>();
+        case BlockType::nam:       return std::make_unique<NamBlock>();
         default:                   return nullptr;
     }
 }

@@ -40,6 +40,10 @@ enum class BlockType : int
     bassChorus, flanger, phaser, tremolo,
     // time (reused)
     analogDelay, digitalDelay, roomVerb, ambientVerb,
+    // bass into bowed strings (October 2026)
+    bow,
+    // a player's own amp, from a Neural Amp Modeler capture (October 2026)
+    nam,
     Count
 };
 constexpr int kNumBlockTypes = (int) BlockType::Count;
@@ -155,6 +159,30 @@ inline const std::vector<BlockSpec>& blockRegistry()
             { BlockType::digitalDelay, "digitalDelay", "Digital Delay", "Time", jm::FxType::digitalDelay, {} },
             { BlockType::roomVerb, "roomVerb", "Small Room Reverb", "Time", jm::FxType::plateReverb, {} },
             { BlockType::ambientVerb, "ambientVerb", "Ambient Reverb", "Time", jm::FxType::hallShimmer, {} },
+
+            //------------------------------------------------------------ strings
+            // Bow: a bass played as a bowed string. Every new note swells in (the
+            // pluck disappears), is held up, gets a player's delayed vibrato and the
+            // body of a cello, double bass or viola. Solo follows the pitch of one line.
+            { BlockType::bow, "bow", "Bow", "Filter", {}, {
+                { "swell", "Swell", ParamKind::Float, 0, 100, 55 },
+                { "vibrato", "Vibrato", ParamKind::Float, 0, 100, 35 },
+                { "body", "Body", ParamKind::Float, 0, 100, 60 },
+                { "rosin", "Rosin", ParamKind::Float, 0, 100, 20 },
+                { "voice", "Voice", ParamKind::Enum, 0, 2, 0, { "Cello", "Double Bass", "Viola" } },
+                { "level", "Level", ParamKind::Float, 0, 100, 50 },
+                { "mode", "Mode", ParamKind::Enum, 0, 1, 0, { "Section", "Solo" } } } },
+
+            //---------------------------------------------------------------- amp
+            // Your Amp: a Neural Amp Modeler capture of a real amp (the player's own
+            // .nam files). `capture` keeps which file as NamModel::keyFor(file name).
+            // `amp`/`cab`: whether the rig's own amp and cab still run after it.
+            { BlockType::nam, "nam", "Your Amp", "Amp", {}, {
+                { "capture", "Capture", ParamKind::Float, 0, 16777215, 0 },
+                { "input", "Input", ParamKind::Float, -24, 24, 0, {}, "dB" },
+                { "output", "Output", ParamKind::Float, -24, 24, 0, {}, "dB" },
+                { "amp", "Built-in Amp", ParamKind::Enum, 0, 1, 0, { "Off", "On" } },
+                { "cab", "Cab", ParamKind::Enum, 0, 1, 1, { "Off", "On" } } } },
         };
 
         for (auto& b : r)
