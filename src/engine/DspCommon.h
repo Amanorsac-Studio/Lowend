@@ -180,6 +180,38 @@ private:
 };
 
 //==============================================================================
+/// A notch in double precision, for the mains hum filter. At 50 Hz and 48 kHz a
+/// float biquad's own rounding noise under a loud note sits near -66 dBFS: as
+/// loud as the hum it is there to remove, so eight of them in a row took out
+/// nothing a player could hear. In double the same chain leaves -135 dBFS.
+struct NotchD
+{
+    void reset() noexcept { z1 = z2 = 0.0; }
+
+    float process (float x) noexcept
+    {
+        const double y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        return (float) y;
+    }
+
+    void set (double sr, double freq, double q) noexcept
+    {
+        const double s = sr > 0.0 ? sr : 48000.0;
+        const double w = juce::MathConstants<double>::twoPi * juce::jlimit (10.0, s * 0.45, freq) / s;
+        const double cosw = std::cos (w), alpha = std::sin (w) / (2.0 * juce::jmax (0.05, q)), a0 = 1.0 + alpha;
+        b0 = 1.0 / a0; b1 = -2.0 * cosw / a0; b2 = b0;
+        a1 = b1; a2 = (1.0 - alpha) / a0;
+    }
+    void setBypass() noexcept { b0 = 1; b1 = b2 = a1 = a2 = 0; }
+
+private:
+    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
+    double z1 = 0, z2 = 0;
+};
+
+//==============================================================================
 /// Peak/RMS envelope follower with separate attack and release times.
 struct EnvFollower
 {

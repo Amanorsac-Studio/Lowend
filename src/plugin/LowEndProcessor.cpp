@@ -492,7 +492,7 @@ void LowEndProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         for (auto& ch : hum_)
             for (int k = 0; k < kHumHarmonics; ++k)
             {
-                if (humHz > 0) ch[(size_t) k].setNotch (sr_, (float) (humHz * (k + 1)), 35.0f);
+                if (humHz > 0) ch[(size_t) k].set (sr_, (double) (humHz * (k + 1)), 35.0);
                 else ch[(size_t) k].setBypass();
                 ch[(size_t) k].reset();
             }
@@ -809,11 +809,16 @@ bool LowEndProcessor::setPath (const juce::String& path, float value, bool notif
         else chain.setParam (index, param.toStdString(), value);
         updateStageUse();
     }
-    else if (path.startsWith ("amp.")) amp_[(size_t) targetAmp()].setParams (rig_.amp);
+    else if (path.startsWith ("amp."))
+    {
+        amp_[(size_t) targetAmp()].setParams (rig_.amp);
+        if (path == "amp.on") updateStageUse();
+    }
     else if (path.startsWith ("cab."))
     {
         cab_[(size_t) targetAmp()].setParams (rig_.cab);
         if (path == "cab.model" || path == "cab.ir") refreshIrs();
+        if (path == "cab.on") updateStageUse();
     }
     else if (path.startsWith ("synth.")) synth_.setParams (rig_.synth);
     else if (path.startsWith ("loop.")) looper_.setParams (rig_.loop);
@@ -876,7 +881,9 @@ void LowEndProcessor::runStage (Stage& stage, juce::AudioBuffer<float>& b, int n
 /// is on and has a capture chosen can switch either off.
 void LowEndProcessor::updateStageUse()
 {
-    bool amp = true, cab = true;
+    // The amp's and the cab's own switches, then a Your Amp pedal that takes
+    // either over. Off for any reason is off.
+    bool amp = mapValue (rig_.amp, "on", 1.0f) >= 0.5f, cab = mapValue (rig_.cab, "on", 1.0f) >= 0.5f;
     for (const auto* chain : { &rig_.pre, &rig_.post })
         for (const auto& b : *chain)
         {

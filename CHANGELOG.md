@@ -20,6 +20,16 @@
 **Your Amp**
 - The Your Amp pedal plays your own Neural Amp Modeler captures (.nam). Drop a .nam file on the app to add it. Each capture is checked, and timed on your computer, before it is used. It switches the built-in amp off, and the cab too if you want.
 
+**A new reverb**
+- The Room and the Hall are a new reverb: a feedback delay network, dense from the first reflection, with no metallic ring of its own. The tail dies in exactly the time the Decay knob says. Every preset keeps its settings and its level.
+- The Hall's Shimmer is a new pitch shifter (Signalsmith Stretch): the octave above no longer warbles, and chords shimmer cleanly.
+
+**Amp and cab switches**
+- An AMP switch on the amp's panel takes the amp out of the path, so the pedals go straight to the output. An Off chip in the cab row takes the speaker out. Both can go on a footswitch.
+- The cab's "DI" setting is now called "No cab": the amp still plays through it, only the speaker is gone. For a true direct sound, switch the amp off.
+- The hum filter (50 or 60 Hz) is now in the Input and output window too, next to the gate. The amp turns a little mains hum into a buzz under the notes; this takes it out. The filter itself is fixed: it was leaving as much noise as it removed while a note played.
+- Volume and Limiter are on the Output card of the Rig page. Volume is a clean level after everything, separate from the amp's Master.
+
 **Fixes**
 - The Library no longer shakes while it is open.
 - Library › Captures › Use on this rig now picks Your IR (it picked the 8×10).

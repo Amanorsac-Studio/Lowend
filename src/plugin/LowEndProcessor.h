@@ -343,7 +343,7 @@ private:
     std::atomic<bool> gateAuto_ { true };
     std::atomic<int> humHz_ { 0 };
     static constexpr int kHumHarmonics = 8;
-    std::array<std::array<Biquad, kHumHarmonics>, 2> hum_;
+    std::array<std::array<NotchD, kHumHarmonics>, 2> hum_;   // double: see NotchD
     int humSeen_ = -1;
     // 100 ms windows of input peak; the floor is the quietest of the last 3 s
     // among windows that are clearly not playing (below -40 dBFS).

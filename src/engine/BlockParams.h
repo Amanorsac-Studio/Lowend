@@ -264,7 +264,10 @@ inline const std::vector<ParamSpec>& ampParams()
         { "ultraLo", "Ultra Lo", ParamKind::Bool, 0, 1, 0 },
         { "ultraHi", "Ultra Hi", ParamKind::Bool, 0, 1, 0 },
         { "sag", "Sag", ParamKind::Float, 0, 100, 30 },
-        { "master", "Master", ParamKind::Float, 0, 100, 60 } };
+        { "master", "Master", ParamKind::Float, 0, 100, 60 },
+        // Off takes the amp out of the path (the pedals still play). The amp
+        // ignores it; the processor fades the stage out, as it does for Your Amp.
+        { "on", "Amp", ParamKind::Bool, 0, 1, 1 } };
     return p;
 }
 
@@ -291,14 +294,15 @@ inline const std::vector<ParamSpec>& cabParams()
 {
     static const std::vector<ParamSpec> p {
         { "model", "Cab", ParamKind::Enum, 0, (int) CabModel::Count - 1, 2,
-          { "1x15", "2x10", "4x10", "8x10", "DI", "User IR" } },
+          { "1x15", "2x10", "4x10", "8x10", "No cab", "User IR" } },   // "No cab" was "DI": the amp still plays, only the speaker is gone
         { "mic", "Mic", ParamKind::Enum, 0, 3, 0, { "Dynamic", "Condenser", "Ribbon", "DI" } },
         { "distance", "Distance", ParamKind::Float, 0, 100, 30 },
         { "axis", "Axis", ParamKind::Float, 0, 100, 40 },
         { "lowCut", "Low Cut", ParamKind::Float, 20, 200, 30, {}, "Hz", false, true },
         { "highCut", "High Cut", ParamKind::Float, 1000, 12000, 6500, {}, "Hz", false, true },
         { "ir", "IR", ParamKind::Float, -1, 255, -1 },   // index into the scanned IR folder; -1 = none
-        { "level", "Level", ParamKind::Float, -24, 12, 0, {}, "dB" } };
+        { "level", "Level", ParamKind::Float, -24, 12, 0, {}, "dB" },
+        { "on", "Cab", ParamKind::Bool, 0, 1, 1 } };       // Off: no speaker, the amp goes straight out
     return p;
 }
 

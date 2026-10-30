@@ -11,6 +11,7 @@
 #include <memory>
 #include "FxParams.h"
 #include "Antialias.h"
+#include "shimmer/PitchShiftBridge.h"
 
 namespace jm {
 
@@ -612,72 +613,178 @@ private:
     juce::SmoothedValue<float> smoothedL_ { 500.0f }, smoothedR_ { 750.0f };
 };
 
-//===================================================== +12 st grain shifter
-// Simple dual-tap octave-up shifter (for shimmer feedback), windowed crossfade.
-/// DSP STANDARDS PASS — guide §4.1, sample-rate independence. This was a real
-/// bug, not a theoretical one: the grain window was `size`, and `size` was
-/// `nextPowerOfTwo(sr * 0.09)`. Rounding a 90 ms window UP to a power of two
-/// gave 4096 frames at 44.1 kHz (92.9 ms) but 8192 at 48 kHz (170.7 ms) —
-/// **the shimmer's grain rate very nearly halved between 44.1 and 48 kHz**, so
-/// the same preset had a different character in a 44.1 kHz session than in a
-/// 48 kHz one. The window is now an explicit frame count derived from the host
-/// rate, and the power-of-two buffer (which only exists so the ring can be
-/// masked) is sized around it.
-struct OctaveUpShifter
+//============================================= 10/11. Room + Hall/Shimmer
+/// A feedback-delay-network reverb, after Geraint Luff's "Let's write a reverb"
+/// (ADC 2021). The input is scattered by four diffusion steps — eight short
+/// delays each, shuffled, sign-flipped and mixed with a Hadamard matrix — and
+/// then recirculates through eight longer lines mixed with a Householder
+/// matrix. Both matrices are orthogonal, so the tail is dense from its first
+/// reflection and has no comb-filter pitch of its own: the two things the old
+/// Freeverb unit (eight combs, four allpasses) could not do. Each line's
+/// feedback is set so a -60 dB fall takes exactly the time the Decay knob says,
+/// and a one-pole damping filter in every line makes the top die first, as it
+/// does in air. The line lengths drift very slowly (Mod), which breaks up any
+/// stationary pattern without ever sounding like a chorus.
+struct FdnReverb
 {
-    std::vector<float> buf[2];
-    int size = 0, w = 0, window = 0;
-    double rp = 0;
+    static constexpr int N = 8, kSteps = 4;
+
     void prepare (double sr)
     {
-        window = juce::jmax (16, (int) std::lround (sr * 0.09));      // 90 ms at ANY rate
-        size = juce::nextPowerOfTwo (window + 8);
-        for (auto& b : buf) b.assign ((size_t) size, 0.0f);
-        w = 0; rp = 0;
+        sr_ = sr;
+        const int diffMax = (int) (sr * 0.170) + 16, loopMax = (int) (sr * 0.280) + 16;
+        for (auto& st : steps_) for (auto& l : st) l.prepare (diffMax);
+        for (auto& l : loop_) l.prepare (loopMax);
+        reset();
     }
-    /// Grain window in frames — regression-tested against 0.09 * sr.
-    int windowFrames() const { return window; }
-    void reset() { for (auto& b : buf) std::fill (b.begin(), b.end(), 0.0f); rp = 0; }
-    void processSample (float inL, float inR, float& outL, float& outR)
+    void reset()
     {
-        buf[0][(size_t) w] = inL; buf[1][(size_t) w] = inR;
-        const double win = (double) window;
-        rp += 1.0;                                  // read advances 2x relative to write == +12 st
-        if (rp >= win) rp -= win;
-        auto tap = [&] (int ch, double offset)
-        {
-            double d = rp + offset; if (d >= win) d -= win;
-            double pos = (double) w - d;
-            int i0 = (int) std::floor (pos);
-            float frac = (float) (pos - i0);
-            int a = ((i0 % size) + size) & (size - 1), b2 = (a + 1) & (size - 1);
-            return buf[ch][(size_t) a] * (1.0f - frac) + buf[ch][(size_t) b2] * frac;
-        };
-        float x1 = (float) (rp / win);              // 0..1 phase of tap 1
-        float g1 = std::sin (juce::MathConstants<float>::pi * x1);
-        float g2 = std::cos (juce::MathConstants<float>::pi * x1); g2 = std::abs (g2);
-        outL = tap (0, 0.0) * g1 + tap (0, win * 0.5) * g2;
-        outR = tap (1, 0.0) * g1 + tap (1, win * 0.5) * g2;
-        w = (w + 1) & (size - 1);
+        for (auto& st : steps_) for (auto& l : st) l.reset();
+        for (auto& l : loop_) l.reset();
+        for (auto& d : damp_) d.reset();
+        phase_ = 0.0f;
+        for (int c = 0; c < N; ++c) modCur_[c] = modStep_[c] = 0.0f;
     }
+    /// Once per block. Diffusion and loop lengths in ms, decay in seconds (to -60 dB).
+    /// The slow drift of the line lengths is computed here, once a block, and
+    /// ramped per sample: eight sines a sample would cost more than the reverb.
+    void set (float diffusionMs, float loopMs, float rt60Seconds, float dampHz, float modDepthMs, int blockSamples)
+    {
+        const float sps = (float) (sr_ / 1000.0);
+        const int nb = juce::jmax (1, blockSamples);
+        for (int s = 0; s < kSteps; ++s)
+        {
+            // each step covers a range that doubles: 1/8, 1/4, 1/2 and all of the diffusion time
+            const float range = diffusionMs * std::pow (0.5f, (float) (kSteps - 1 - s));
+            for (int c = 0; c < N; ++c)
+                stepDelay_[s][c] = juce::jlimit (1, steps_[(size_t) s][(size_t) c].size - 2, (int) (range * sps * ((float) c + kFrac[s][c]) / (float) N));
+        }
+        for (int c = 0; c < N; ++c)
+        {
+            // the lines spread over an octave of length, each nudged off the grid
+            const float ms = loopMs * std::pow (2.0f, ((float) c + 0.5f * kFrac[kSteps][c]) / (float) N);
+            loopDelay_[c] = juce::jmax (4.0f, ms * sps);
+            fb_[c] = std::pow (10.0f, -3.0f * (ms / 1000.0f) / juce::jmax (0.05f, rt60Seconds));
+            damp_[c].setCutoff (juce::jlimit (200.0f, (float) (sr_ * 0.45), dampHz), sr_);
+        }
+        const float depth = modDepthMs * sps;
+        phase_ += 0.23f / (float) sr_ * (float) nb;        // one drift every four seconds or so
+        if (phase_ >= 1.0f) phase_ -= 1.0f;
+        for (int c = 0; c < N; ++c)
+        {
+            const float target = depth > 0.0f ? depth * std::sin (juce::MathConstants<float>::twoPi * (phase_ + kFrac[kSteps + 1][c])) : 0.0f;
+            modStep_[c] = (target - modCur_[c]) / (float) nb;
+        }
+    }
+    /// `early` is the diffused input before the loop: the first reflections, for body.
+    void processSample (float inL, float inR, float& outL, float& outR, float& earlyL, float& earlyR)
+    {
+        float x[N];
+        for (int c = 0; c < N; ++c) x[c] = (c & 1) ? inR : inL;
+        for (int s = 0; s < kSteps; ++s)
+        {
+            float y[N];
+            for (int c = 0; c < N; ++c) { steps_[s][c].push (x[c]); y[c] = steps_[s][c].readInt (stepDelay_[s][c]); }
+            for (int c = 0; c < N; ++c) x[c] = kFlip[s][c] ? -y[kShuffle[s][c]] : y[kShuffle[s][c]];
+            hadamard (x);
+        }
+        earlyL = (x[0] + x[2] + x[4] + x[6]) * 0.5f;
+        earlyR = (x[1] + x[3] + x[5] + x[7]) * 0.5f;
+
+        float y[N];
+        for (int c = 0; c < N; ++c)
+        {
+            modCur_[c] += modStep_[c];
+            y[c] = damp_[c].process (loop_[c].readFrac (loopDelay_[c] + modCur_[c])) * fb_[c];
+        }
+        float mixed[N];
+        householder (y, mixed);
+        for (int c = 0; c < N; ++c) loop_[c].push (x[c] + mixed[c]);
+        // two different sign patterns, so the two sides are decorrelated
+        outL = (y[0] + y[1] - y[2] + y[3] - y[4] - y[5] + y[6] - y[7]) * 0.35355339f;
+        outR = (y[0] - y[1] + y[2] + y[3] - y[4] + y[5] - y[6] - y[7]) * 0.35355339f;
+    }
+
+private:
+    struct Line
+    {
+        std::vector<float> buf; int size = 0, mask = 0, w = 0;
+        void prepare (int maxSamples) { size = juce::nextPowerOfTwo (maxSamples + 8); mask = size - 1; buf.assign ((size_t) size, 0.0f); w = 0; }
+        void reset() { std::fill (buf.begin(), buf.end(), 0.0f); }
+        void push (float v) { buf[(size_t) w] = v; w = (w + 1) & mask; }
+        /// `d` is clamped once, in set(); the audio path does no checking.
+        float readInt (int d) const { return buf[(size_t) ((w - 1 - d) & mask)]; }
+        /// Same 4-point Lagrange read as ModDelay (see its note on why not linear).
+        float readFrac (float delaySamples) const
+        {
+            const float d = juce::jlimit (2.0f, (float) (size - 3), delaySamples);
+            const float rp = (float) w - 1.0f - d;
+            const int i0 = (int) std::floor (rp);
+            const float frac = rp - (float) i0;
+            const int i1 = i0 & mask;      // size is a power of two: this wraps a negative i0 too
+            return lagrange3 (buf[(size_t) ((i1 - 1 + size) & mask)], buf[(size_t) i1],
+                              buf[(size_t) ((i1 + 1) & mask)], buf[(size_t) ((i1 + 2) & mask)], frac);
+        }
+    };
+    static void hadamard (float* x)
+    {
+        for (int h = 1; h < N; h *= 2)
+            for (int i = 0; i < N; i += 2 * h)
+                for (int j = i; j < i + h; ++j) { const float a = x[j], b = x[j + h]; x[j] = a + b; x[j + h] = a - b; }
+        for (int c = 0; c < N; ++c) x[c] *= 0.35355339f;      // 1/sqrt(8): energy preserving
+    }
+    static void householder (const float* y, float* out)
+    {
+        float s = 0.0f; for (int c = 0; c < N; ++c) s += y[c];
+        s *= 2.0f / (float) N;
+        for (int c = 0; c < N; ++c) out[c] = y[c] - s;
+    }
+    // Fixed "random" fractions, shuffles and sign flips: the same reverb every
+    // launch, on every machine, at every rate.
+    static constexpr float kFrac[kSteps + 2][N] = {
+        { 0.31f, 0.77f, 0.12f, 0.58f, 0.93f, 0.44f, 0.66f, 0.21f },
+        { 0.52f, 0.09f, 0.84f, 0.37f, 0.71f, 0.18f, 0.95f, 0.63f },
+        { 0.73f, 0.26f, 0.49f, 0.91f, 0.14f, 0.82f, 0.38f, 0.57f },
+        { 0.19f, 0.64f, 0.33f, 0.86f, 0.47f, 0.72f, 0.05f, 0.98f },
+        { 0.41f, 0.88f, 0.17f, 0.69f, 0.35f, 0.96f, 0.53f, 0.24f },
+        { 0.00f, 0.37f, 0.71f, 0.19f, 0.55f, 0.88f, 0.26f, 0.63f } };
+    static constexpr int kShuffle[kSteps][N] = {
+        { 3, 6, 0, 5, 1, 7, 2, 4 }, { 5, 2, 7, 0, 4, 1, 6, 3 }, { 1, 4, 6, 2, 7, 3, 0, 5 }, { 6, 0, 3, 7, 2, 5, 1, 4 } };
+    static constexpr bool kFlip[kSteps][N] = {
+        { false, true, true, false, true, false, false, true }, { true, false, true, true, false, false, true, false },
+        { false, false, true, false, true, true, false, true }, { true, true, false, false, true, false, true, false } };
+
+    double sr_ = 48000.0;
+    std::array<std::array<Line, N>, kSteps> steps_;
+    int stepDelay_[kSteps][N] {};
+    std::array<Line, N> loop_;
+    float loopDelay_[N] {}, fb_[N] {};
+    std::array<OnePoleLP, N> damp_;
+    float modCur_[N] {}, modStep_[N] {}, phase_ = 0.0f;
 };
 
-//================================================ 10/11. Plate + Hall/Shimmer
+/// The Room (plate) and the Hall (with Shimmer) are the same network with
+/// different sizes and knobs. Shimmer feeds the wet signal, shifted up an
+/// octave by Signalsmith Stretch, back into the input — one block late, which
+/// a 100 ms pitch shifter inside a seconds-long tail never shows.
 class ReverbFxBase : public FxUnit
 {
 public:
-    ReverbFxBase (FxType t, bool hall) : FxUnit (t), hall_ (hall) {}
+    ReverbFxBase (FxType t, bool hall) : FxUnit (t), hall_ (hall)
+    {
+        if (hall) shifter_ = amshift::createShifter();
+    }
     void prepare (double sr, int maxBlock) override
     {
-        sr_ = sr;
-        rev_.setSampleRate (sr);
+        sr_ = sr; maxBlock_ = juce::jmax (1, maxBlock);
+        fdn_.prepare (sr);
         pre_.prepare (sr, 220.0f);
-        shifter_.prepare (sr);
-        modDl_.prepare (sr, 12.0f);
-        wet_.setSize (2, maxBlock);
+        wet_.setSize (2, maxBlock_);
+        shim_.setSize (2, maxBlock_);
+        if (shifter_) shifter_->prepare (sr, 2, maxBlock_);
         reset();
     }
-    void reset() override { rev_.reset(); pre_.reset(); shifter_.reset(); modDl_.reset(); shimL_ = shimR_ = 0; }
+    void reset() override { fdn_.reset(); pre_.reset(); shim_.clear(); if (shifter_) shifter_->reset(); }
     void process (juce::AudioBuffer<float>& b, double) override
     {
         const float size = p (0) / 100.0f;
@@ -688,60 +795,58 @@ public:
         const float damp = hall_ ? 0.35f : p (3) / 100.0f;
         const float mix = p (4) / 100.0f;
 
-        juce::Reverb::Parameters rp;
-        const float decayNorm = juce::jlimit (0.0f, 1.0f,
-            (std::log (decay) - std::log (hall_ ? 0.5f : 0.3f)) / (std::log (hall_ ? 20.0f : 8.0f) - std::log (hall_ ? 0.5f : 0.3f)));
-        rp.roomSize = juce::jlimit (0.0f, 0.99f, 0.45f + 0.35f * size + 0.19f * decayNorm);
-        rp.damping  = juce::jlimit (0.0f, 1.0f, damp);
-        rp.wetLevel = 1.0f; rp.dryLevel = 0.0f;
-        rp.width = 1.0f;
-        rev_.setParameters (rp);
-        modLfo_.setRate (0.7f, sr_);
+        // A plate is small and bright and arrives at once; a hall is large and
+        // its reflections take their time.
+        const float loopMs = hall_ ? 30.0f + 70.0f * size : 12.0f + 38.0f * size;
+        const float diffMs = hall_ ? 40.0f + 60.0f * size : 25.0f + 45.0f * size;
+        const float dampHz = 16000.0f * std::pow (1500.0f / 16000.0f, damp);
+        const int n = juce::jmin (b.getNumSamples(), maxBlock_);
+        fdn_.set (diffMs, loopMs, decay, dampHz, hall_ ? 0.10f + 0.50f * mod : 0.08f, n);
+        const float early = hall_ ? 0.30f : 0.50f;
+        const float wetGain = hall_ ? kHallGain : kRoomGain;
 
-        const int n = b.getNumSamples();
         auto* L = b.getWritePointer (0);
         auto* R = b.getNumChannels() > 1 ? b.getWritePointer (1) : L;
         auto* wL = wet_.getWritePointer (0);
         auto* wR = wet_.getWritePointer (1);
+        const bool shim = shifter_ != nullptr && shimmer > 0.001f;
         const float msToSamp = (float) (sr_ / 1000.0);
+        const float d = juce::jmax (2.0f, preMs * msToSamp);
         for (int i = 0; i < n; ++i)
         {
-            pre_.push (L[i] + shimL_, R[i] + shimR_);
-            float d = juce::jmax (1.0f, preMs * msToSamp);
-            wL[i] = pre_.read (0, d);
-            wR[i] = pre_.read (1, d);
+            const float sl = shim ? shim_.getSample (0, i) * shimmer * 0.5f : 0.0f;
+            const float srr = shim ? shim_.getSample (1, i) * shimmer * 0.5f : 0.0f;
+            pre_.push (guard_.shape (L[i] + sl), guard_.shape (R[i] + srr));
+            float oL, oR, eL, eR;
+            fdn_.processSample (pre_.read (0, d), pre_.read (1, d), oL, oR, eL, eR);
+            wL[i] = (oL + eL * early) * wetGain;
+            wR[i] = (oR + eR * early) * wetGain;
         }
-        rev_.processStereo (wL, wR, n);
+        if (shim)
+        {
+            const float* in[2] = { wL, wR };
+            float* out[2] = { shim_.getWritePointer (0), shim_.getWritePointer (1) };
+            shifter_->process (in, out, n);        // the octave above, for the next block
+        }
+        else shim_.clear (0, n);
         for (int i = 0; i < n; ++i)
         {
-            if (mod > 0.001f)
-            {
-                modDl_.push (wL[i], wR[i]);
-                float dm = (2.0f + modLfo_.tickSin() * 1.6f * mod) * msToSamp;
-                wL[i] = modDl_.read (0, dm);
-                wR[i] = modDl_.read (1, dm * 1.07f);
-            }
-            if (shimmer > 0.001f)
-            {
-                float sl, srr;
-                shifter_.processSample (wL[i], wR[i], sl, srr);
-                shimL_ = sl * shimmer * 0.5f;
-                shimR_ = srr * shimmer * 0.5f;
-            }
-            else shimL_ = shimR_ = 0;
             L[i] = L[i] * (1.0f - mix) + wL[i] * mix;
             R[i] = R[i] * (1.0f - mix) + wR[i] * mix;
         }
     }
 private:
+    // Wet level at Mix 100 for a held note, matched to where the old units sat
+    // so no preset changed loudness: Room -12.7 dB, Hall -13.3 dB (ProcessorTest).
+    static constexpr float kRoomGain = 1.82f, kHallGain = 1.48f;
     bool hall_;
     double sr_ = 48000;
-    juce::Reverb rev_;
-    ModDelay pre_, modDl_;
-    OctaveUpShifter shifter_;
-    Lfo modLfo_;
-    juce::AudioBuffer<float> wet_;
-    float shimL_ = 0, shimR_ = 0;
+    int maxBlock_ = 512;
+    FdnReverb fdn_;
+    ModDelay pre_;
+    SoftCeiling guard_ = makeLoopGuard();
+    std::unique_ptr<amshift::Shifter> shifter_;
+    juce::AudioBuffer<float> wet_, shim_;
 };
 struct PlateReverbFx : ReverbFxBase { PlateReverbFx() : ReverbFxBase (FxType::plateReverb, false) {} };
 struct HallShimmerFx : ReverbFxBase { HallShimmerFx() : ReverbFxBase (FxType::hallShimmer, true) {} };

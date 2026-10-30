@@ -12,6 +12,8 @@
 #include "engine/PresetPacks.h"
 #include "engine/NamModel.h"
 #include "NamFixture.h"
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -97,6 +99,185 @@ int main (int argc, char** argv)
         render (0.2);
         const auto back = render (0.5);
         check (std::abs (purity (back, f, sr) - purity (rig, f, sr)) < 0.05 || purity (back, f, sr) < 0.9, "switching Bypass All off brings the rig back");
+    }
+
+    //------------------------------------------------- the amp and cab switches
+    // "Let me plug in and use the pedals without the amp." Amp Off and Cab Off
+    // take those two stages out and leave the rest of the path alone: with no
+    // pedals on the board, what goes in is what comes out.
+    {
+        LowEndProcessor p;
+        p.setPlayConfigDetails (2, 2, sr, block);
+        p.prepareToPlay (sr, block);
+        juce::MidiBuffer midi;
+        double phase = 0.0;
+        const double f = 220.0;
+        auto render = [&] (double seconds)
+        {
+            std::vector<float> out;
+            juce::AudioBuffer<float> b (2, block);
+            const int blocks = (int) (seconds * sr / block);
+            for (int k = 0; k < blocks; ++k)
+            {
+                for (int i = 0; i < block; ++i)
+                {
+                    const float s = 0.25f * (float) std::sin (phase);
+                    phase += 2.0 * juce::MathConstants<double>::pi * f / sr;
+                    b.setSample (0, i, s); b.setSample (1, i, s);
+                }
+                p.processBlock (b, midi);
+                for (int i = 0; i < block; ++i) out.push_back (b.getSample (0, i));
+            }
+            return out;
+        };
+        Rig r = p.rig();
+        r.pre.clear(); r.post.clear();
+        p.loadRig (r, false);
+        render (0.5);
+        const auto rig = render (0.5);
+        p.setPath ("amp.on", 0.0f, false);
+        p.setPath ("cab.on", 0.0f, false);
+        render (0.2);                                   // past the fade
+        const auto straight = render (0.5);
+        const double inRms = 0.25 / std::sqrt (2.0);
+        std::printf ("    amp+cab off: purity %.6f   level %.2f dB\n", purity (straight, f, sr), 20.0 * std::log10 (rms (straight) / inRms));
+        check (purity (straight, f, sr) > 0.9999, "Amp Off and Cab Off send the pedals straight out (a pure tone stays pure)");
+        check (std::abs (20.0 * std::log10 (rms (straight) / inRms)) < 0.5, "and keep the level");
+        check (purity (rig, f, sr) < purity (straight, f, sr), "with them on, the amp is heard");
+        // The output Volume is a clean gain after everything: -6 dB is -6 dB, and nothing else.
+        p.setPath ("out.master", -6.0f, false);
+        render (0.2);
+        const auto quieter = render (0.5);
+        check (purity (quieter, f, sr) > 0.9999 && std::abs (20.0 * std::log10 (rms (quieter) / inRms) + 6.0) < 0.3,
+               "the output Volume turns it down cleanly (" + juce::String (20.0 * std::log10 (rms (quieter) / inRms), 2) + " dB)");
+        p.setPath ("out.master", 0.0f, false);
+        p.setPath ("amp.on", 1.0f, false);
+        p.setPath ("cab.on", 1.0f, false);
+        render (0.2);
+        const auto back = render (0.5);
+        check (std::abs (purity (back, f, sr) - purity (rig, f, sr)) < 0.05 || purity (back, f, sr) < 0.9, "switching them back brings the amp back");
+    }
+
+    //------------------------------------------------- mains hum on the input
+    // Most rigs put a little hum into the interface: single coils, a laptop
+    // supply, an unbalanced lead. On its own it is almost inaudible; the amp
+    // then applies 13–25 dB of gain and its saturation turns a soft hum into a
+    // buzz that rides under every note. Two defences, both measured here: the
+    // gate closes on hum alone, and the hum filter takes it out from under a
+    // note.
+    {
+        auto run = [&] (bool gate, int humFilterHz, bool note, bool hum)
+        {
+            LowEndProcessor p;
+            p.setPlayConfigDetails (2, 2, sr, block);
+            p.prepareToPlay (sr, block);
+            p.setHumHz (humFilterHz);
+            Rig r = p.rig(); r.pre.clear(); r.post.clear();
+            r.in["gateOn"] = gate ? 1.0f : 0.0f;
+            p.loadRig (r, false);
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> b (2, block);
+            std::vector<float> out;
+            const double humA = std::pow (10.0, -65.0 / 20.0) * std::sqrt (2.0);     // -65 dBFS RMS, as a cheap interface idles
+            for (int k = 0; k < 600; ++k)
+            {
+                for (int i = 0; i < block; ++i)
+                {
+                    const double t = (k * block + i) / sr, w = 2.0 * juce::MathConstants<double>::pi * t;
+                    double v = hum ? humA * (std::sin (50.0 * w) + 0.3 * std::sin (150.0 * w) + 0.15 * std::sin (250.0 * w)) : 0.0;
+                    if (note) v += 0.2 * std::sin (110.0 * w);
+                    b.setSample (0, i, (float) v); b.setSample (1, i, (float) v);
+                }
+                p.processBlock (b, midi);
+                for (int i = 0; i < block; ++i) out.push_back (b.getSample (0, i));
+            }
+            return std::vector<float> (out.begin() + 400 * block, out.end());          // past the gate's 3 s floor window
+        };
+        auto dB = [] (double v) { return 20.0 * std::log10 (v + 1.0e-12); };
+        // The hum under a note is what the hum adds: the same rig rendered with
+        // and without it, and the difference taken. (Reading the mains lines
+        // out of the spectrum would pick up the note's leakage instead.)
+        auto added = [&] (const std::vector<float>& with, const std::vector<float>& without)
+        {
+            std::vector<float> d (with.size());
+            for (size_t i = 0; i < d.size(); ++i) d[i] = with[i] - without[i];
+            return rms (d);
+        };
+        const auto open = run (false, 0, false, true), gated = run (true, 0, false, true);
+        const auto noteHum = run (true, 0, true, true), noteHumF = run (true, 50, true, true);
+        const double under = added (noteHum, run (true, 0, true, false)), underF = added (noteHumF, run (true, 50, true, false));
+        std::printf ("    hum alone: %.1f dBFS out of the amp (%.1f in), %.1f gated.  Under a note: %.1f dBFS, %.1f with the 50 Hz filter\n",
+                     dB (rms (open)), -65.0, dB (rms (gated)), dB (under), dB (underF));
+        check (rms (open) > 1.0e-6, "hum on the input comes out of the amp (why a buzz is heard at all)");
+        check (dB (rms (gated)) < -90.0, "with the gate on, hum alone is silenced");
+        check (dB (underF) < dB (under) - 15.0, "the hum filter takes it out from under a note");
+        check (std::abs (dB (rms (noteHumF)) - dB (rms (noteHum))) < 1.0, "without touching the note's level");
+    }
+
+    //------------------------------------------------- the reverbs
+    // A steady note into the Room and the Hall at Mix 100, then silence. Three
+    // things a player hears: how loud the wet signal is against the dry (kept
+    // where the old Freeverb units sat, so presets do not jump), that the tail
+    // dies at the rate the Decay knob says, and that it is a wash rather than
+    // a ring (no single frequency stands out of the tail).
+    {
+        using namespace jm;
+        auto measure = [&] (FxType t, const char* name, float decaySeconds, double wetRef)
+        {
+            auto u = createFxUnit (t);
+            u->prepare (sr, block);
+            u->setParam ("decay", decaySeconds);
+            u->setParam ("mix", 100.0f);
+            juce::AudioBuffer<float> b (2, block);
+            std::vector<float> out;
+            const int noteBlocks = (int) (2.0 * sr / block), tailBlocks = (int) (8.0 * sr / block);
+            for (int k = 0; k < noteBlocks + tailBlocks; ++k)
+            {
+                for (int i = 0; i < block; ++i)
+                {
+                    const double tt = (k * block + i) / sr;
+                    const float v = k < noteBlocks ? 0.25f * (float) (std::sin (2 * juce::MathConstants<double>::pi * 220.0 * tt)
+                                                                     + 0.5 * std::sin (2 * juce::MathConstants<double>::pi * 330.0 * tt)) : 0.0f;
+                    b.setSample (0, i, v); b.setSample (1, i, v);
+                }
+                u->process (b, 120.0);
+                for (int i = 0; i < block; ++i) out.push_back (0.5f * (b.getSample (0, i) + b.getSample (1, i)));
+            }
+            auto dB = [] (double v) { return 20.0 * std::log10 (v + 1.0e-12); };
+            const std::vector<float> held (out.begin() + noteBlocks * block - (int) sr, out.begin() + noteBlocks * block);
+            const double wet = dB (rms (held)), dry = dB (0.25 * std::sqrt (0.5 * (1.0 + 0.25)));
+            // the tail's level every 250 ms, for the decay rate
+            std::vector<double> env;
+            for (int s = noteBlocks * block; s + (int) (sr / 4) <= (int) out.size(); s += (int) (sr / 4))
+                env.push_back (dB (rms (std::vector<float> (out.begin() + s, out.begin() + s + (int) (sr / 4)))));
+            // rate between 1 s and 2.5 s into the tail (past the early reflections, above the floor)
+            const double slope = (env[10] - env[4]) / 1.5;                     // dB per second
+            const double rt60 = -60.0 / juce::jmin (-0.01, slope);
+            // a ring: a single click in, and 0.5-1.5 s later how much of the tail
+            // is its one loudest 20 Hz band (a comb-filter reverb rings at its own pitch)
+            u->reset();
+            std::vector<float> tail;
+            for (int k = 0; k < (int) (1.5 * sr / block); ++k)
+            {
+                b.clear();
+                if (k == 0) { b.setSample (0, 0, 0.5f); b.setSample (1, 0, 0.5f); }
+                u->process (b, 120.0);
+                for (int i = 0; i < block; ++i) tail.push_back (0.5f * (b.getSample (0, i) + b.getSample (1, i)));
+            }
+            tail.erase (tail.begin(), tail.begin() + (int) (0.5 * sr));
+            double peakShare = 0;
+            for (double f = 100.0; f < 4000.0; f += 20.0) peakShare = juce::jmax (peakShare, purity (tail, f, sr));
+            const bool finiteAll = std::all_of (out.begin(), out.end(), [] (float v) { return std::isfinite (v); });
+            std::printf ("    %-5s wet %.1f dB vs dry %.1f (ref %.1f)   tail rt60 %.1fs for decay %.1fs   loudest band %.1f%%   end %.1f dB\n",
+                         name, wet, dry, wetRef, rt60, decaySeconds, peakShare * 100, env.back());
+            check (finiteAll, juce::String (name) + " reverb stays finite");
+            check (std::abs (wet - wetRef) < 2.5, juce::String (name) + " wet level sits where it did (" + juce::String (wet - wetRef, 1) + " dB off)");
+            check (rt60 > decaySeconds * 0.5 && rt60 < decaySeconds * 1.8, juce::String (name) + " tail decays at the rate the knob says");
+            check (peakShare < 0.35, juce::String (name) + " tail is a wash, not a ring");
+            check (env.back() < env[0] - 20.0, juce::String (name) + " tail keeps falling");
+        };
+        measure (FxType::plateReverb, "Room", 2.2f, -12.7);
+        measure (FxType::hallShimmer, "Hall", 4.0f, -13.3);
     }
 
     //------------------------------------------------- a pedal switched on fades in

@@ -127,19 +127,33 @@ FetchContent_Declare(nam_eigen
     URL      "https://gitlab.com/libeigen/eigen/-/archive/bc3b39870ecb690a623a3f49149a358b95c5781d/eigen-bc3b39870ecb690a623a3f49149a358b95c5781d.tar.gz"
     URL_HASH SHA256=5f6557d1aca6e959a4b955c55f2935261fd30de59c0c79e35bc6d5cbe1de22d1
     SOURCE_SUBDIR "no-cmake")
-# Sources only: SOURCE_SUBDIR names a folder with no CMakeLists.txt, so neither
+# Signalsmith Stretch (MIT) is the pitch shifter behind the Hall's Shimmer; it is
+# header-only and uses Signalsmith Linear (MIT) for its FFT. Both pinned by hash.
+# Only src/engine/shimmer/PitchShiftBridge.cpp includes their headers.
+FetchContent_Declare(ss_stretch
+    URL      "https://github.com/Signalsmith-Audio/signalsmith-stretch/archive/a670068d9aeb64913331d5cc29337b19a457a7df.tar.gz"
+    URL_HASH SHA256=948b8382bb13f316d13536cdfe06111789a538e8fee7f7a531ee2aec94de1747
+    SOURCE_SUBDIR "no-cmake")
+FetchContent_Declare(ss_linear
+    URL      "https://github.com/Signalsmith-Audio/linear/archive/6d8488e1c239975d240a93dc91824878a0ca088b.tar.gz"
+    URL_HASH SHA256=77e1b11f2c80415a920439f490bbefc86ced3eea1066c627a814e094d472cd7b
+    SOURCE_SUBDIR "no-cmake")
+# Sources only: SOURCE_SUBDIR names a folder with no CMakeLists.txt, so no
 # project's own build (tools, tests) is run.
-FetchContent_MakeAvailable(nam_core nam_eigen)
+FetchContent_MakeAvailable(nam_core nam_eigen ss_stretch ss_linear)
 file(GLOB LOWEND_NAM_SOURCES CONFIGURE_DEPENDS
     "${nam_core_SOURCE_DIR}/NAM/*.cpp"
     "${nam_core_SOURCE_DIR}/NAM/*/*.cpp")
 # OBJECT, not STATIC: NAM's architectures register themselves from static
-# initialisers, which a static library would drop at link time.
-add_library(lowend_nam OBJECT ${LOWEND_NAM_SOURCES} src/engine/nam/NamBridge.cpp)
+# initialisers, which a static library would drop at link time. The Signalsmith
+# bridge rides in the same library: it is the other third-party DSP doorway.
+add_library(lowend_nam OBJECT ${LOWEND_NAM_SOURCES} src/engine/nam/NamBridge.cpp src/engine/shimmer/PitchShiftBridge.cpp)
 target_include_directories(lowend_nam PRIVATE
     "${nam_core_SOURCE_DIR}"
     "${nam_core_SOURCE_DIR}/NAM"
-    "${nam_core_SOURCE_DIR}/Dependencies/nlohmann")
+    "${nam_core_SOURCE_DIR}/Dependencies/nlohmann"
+    "${ss_stretch_SOURCE_DIR}"
+    "${ss_linear_SOURCE_DIR}/include")
 target_include_directories(lowend_nam SYSTEM PRIVATE "${nam_eigen_SOURCE_DIR}")
 target_compile_definitions(lowend_nam PRIVATE NAM_SAMPLE_FLOAT EIGEN_MPL2_ONLY NAM_ENABLE_A2_FAST
     $<$<PLATFORM_ID:Windows>:NOMINMAX WIN32_LEAN_AND_MEAN>)

@@ -1188,8 +1188,14 @@ public:
             else
                 next[i].mix.setCurrentAndTargetValue (u.bypassed ? 0.0f : 1.0f);
         }
-        const juce::SpinLock::ScopedLockType sl (lock_);
-        slots_ = std::move (next);
+        {
+            const juce::SpinLock::ScopedLockType sl (lock_);
+            std::swap (slots_, next);
+        }
+        // `next` now holds the retired blocks. They are freed HERE, after the
+        // lock: a reverb with its pitch shifter is megabytes of buffers, and
+        // freeing that while the audio thread spins on the lock was an 8 ms block.
+        next.clear();
     }
 
     void setParam (int slot, const std::string& id, float v)

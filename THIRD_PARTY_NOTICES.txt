@@ -61,6 +61,20 @@ Eigen (revision bc3b39870ecb690a623a3f49149a358b95c5781d)
   text of the MPL 2.0 is at https://mozilla.org/MPL/2.0/.
 
 
+HALL REVERB SHIMMER (PITCH SHIFTING)
+
+Signalsmith Stretch 1.4.0 (revision a670068d9aeb64913331d5cc29337b19a457a7df)
+  Copyright (c) 2022 Geraint Luff / Signalsmith Audio Ltd. MIT Licence.
+  https://github.com/Signalsmith-Audio/signalsmith-stretch
+
+Signalsmith Linear (revision 6d8488e1c239975d240a93dc91824878a0ca088b)
+  Copyright (c) 2025 Signalsmith Audio. MIT Licence.
+  https://github.com/Signalsmith-Audio/linear
+
+The reverb itself is our own: a feedback delay network built after the design
+Geraint Luff presented in "Let's write a reverb" (ADC 2021).
+
+
 FONTS (all shipped inside the product; none is fetched at run time)
 
 Inter 4.x - Copyright (c) The Inter Project Authors. SIL Open Font Licence 1.1.
@@ -70,7 +84,8 @@ Barlow Semi Condensed - Copyright (c) The Barlow Project Authors.
 
 
 THE MIT LICENCE (applies to ONNX Runtime, HT-Demucs, the Intel export,
-demucs.cpp, NeuralAmpModelerCore and nlohmann/json)
+demucs.cpp, NeuralAmpModelerCore, nlohmann/json, Signalsmith Stretch and
+Signalsmith Linear)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

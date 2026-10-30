@@ -18,7 +18,7 @@ yourself playing over it.
 
 ## Description (product page)
 
-**A rig you build.** Four bass amps: Studio Clean, Classic Tube, Flip Top and Monolith. 1×15, 2×10, 4×10 and 8×10 cabinets with microphone choice and placement, a DI setting, and your own impulse responses. A pedalboard in any order, before
+**A rig you build.** Four bass amps: Studio Clean, Classic Tube, Flip Top and Monolith. 1×15, 2×10, 4×10 and 8×10 cabinets with microphone choice and placement, a no-cab setting, and your own impulse responses. A pedalboard in any order, before
 or after the amp: Noise Gate, Modern Bass OD, Tube OD, Green Box, Ranger Boost, Studio Comp, FET Squeeze, Bass EQ, Envelope Filter and more, in any order. Pedals sound one after another, as on a real
 board, and Bypass All lets you hear your bass as it is.
 - A DI blend under the amp, and a synth voice that follows the note you play.
@@ -56,7 +56,7 @@ requests. Your presets, songs and recordings stay in Documents.
 ## Features (bullet list)
 
 - Four bass amps: Studio Clean, Classic Tube, Flip Top and Monolith
-- 1×15, 2×10, 4×10 and 8×10 cabinets with microphone choice and placement, a DI setting, and your own impulse responses
+- 1×15, 2×10, 4×10 and 8×10 cabinets with microphone choice and placement, a no-cab setting, and your own impulse responses
 - Pedalboard in any order, before or after the amp; Bypass All
 - A DI blend under the amp, and a synth voice that follows the note you play.
 - Presets and sets; footswitches A to F; changing preset never cuts the sound

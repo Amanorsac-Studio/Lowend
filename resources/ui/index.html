@@ -271,6 +271,10 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .flip i{width:16px;height:26px;border-radius:5px;background:#1b1714;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);position:relative}
 .flip i::after{content:"";position:absolute;left:3px;right:3px;height:10px;border-radius:3px;background:linear-gradient(#d9d2c4,#8e877b);top:13px;transition:top .15s}
 .flip.on i::after{top:3px}
+/* the amp switched off: the lamp goes dark and the panel fades; the cab off: an empty baffle */
+.amp.ampoff .lamp{animation:none;background:radial-gradient(circle at 40% 35%,#5a4a3a,#2b241e 55%)}
+.amp.ampoff .knobrow,.amp.ampoff .badge{opacity:.5}
+.amp.caboff .plate{opacity:.35}
 .grille{position:relative;border-radius:10px;overflow:hidden;min-height:110px;background:var(--g);box-shadow:inset 0 0 0 2px #2b1f17,inset 0 0 40px rgba(0,0,0,.65)}
 .grille::before{content:"";position:absolute;inset:0;background:radial-gradient(120% 140% at 50% 0%,rgba(255,220,170,.08),transparent 60%)}
 .plate{position:absolute;left:50%;top:12px;transform:translateX(-50%);padding:3px 14px;border-radius:5px;background:linear-gradient(180deg,#e8dcc0,#b9a57d);
@@ -344,6 +348,21 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .beatdots i.one{width:15px;border-radius:5px}
 .beatdots i.now{background:var(--amber)}
 .beatdots.count i.now{background:var(--good)}
+.outhead{flex-wrap:wrap}
+.outhead .tag{order:3}
+/* small, in the title row: a 30 px dial with its value, and a short toggle */
+.outctl{display:flex;order:2;margin:0 auto 0 0;align-items:center;gap:12px}
+.outctl .ctl{width:auto;display:flex;align-items:center;gap:6px}
+.outctl .ctl .dial{width:30px;height:30px;margin:0}
+.outctl .ctl svg{width:30px;height:30px}
+.outctl .ctl .lab{display:none}
+.outctl .ctl .val{font-size:11px}
+.outctl .toggle{width:40px;height:24px;margin:0}
+.outctl .toggle::after{width:18px;height:18px;top:2px;left:2px}
+.outctl .toggle.on::after{transform:translateX(16px)}
+/* a long list pages with arrows and a count, not a dot a page */
+.pager .pn{width:36px;height:28px;font-size:20px;line-height:1;color:var(--muted)}
+.pager .pc{font-family:var(--font-num);font-size:11px;letter-spacing:.08em;color:var(--muted);align-self:center;min-width:52px;text-align:center}
 .meters{display:grid;gap:9px}
 .mrow{display:grid;grid-template-columns:30px 1fr 50px;align-items:center;gap:10px}
 .meter{height:7px;border-radius:4px;background:var(--well);overflow:hidden;border:1px solid var(--line)}
@@ -922,7 +941,9 @@ dl.helpdl dd{margin:2px 0 0;color:var(--muted);font-size:13px}
         </div>
       </div>
       <div class="card">
-        <div class="head" style="margin-bottom:8px"><h2>Output</h2><span class="tag" id="limTag">Limiter</span></div>
+        <!-- the clean output volume and the limiter: after everything, no colour of their own.
+             They sit on their own line under the title; on a short window they shrink into the title row. -->
+        <div class="head outhead" style="margin-bottom:8px"><h2>Output</h2><div class="outctl" id="outCtl"></div><span class="tag" id="limTag">Limiter</span></div>
         <div class="meters">
           <div class="mrow"><span class="cap">IN</span><div class="meter" id="mIn"><b></b></div><span class="num" id="mInV">—</span></div>
           <div class="mrow"><span class="cap">OUT</span><div class="meter" id="mOut"><b></b></div><span class="num" id="mOutV">—</span></div>
@@ -1260,7 +1281,7 @@ const PRODUCT=(()=>{ const W=(a,b)=>'repeating-linear-gradient(45deg,'+a+' 0 1.5
     {name:'Flip Top',     sub:'TUBE COMBO · ROUND',    p:'linear-gradient(#d7dce4,#b9c0cc)', pp:'#4a6a9a', k:'#18202c', g:W('#2a3a55','#1b283b'), ink:'#18202c', logo:'#1b283b', subc:'#4a5a72', onbg:'#18202c', onfg:'#d7dce4'},
     {name:'Monolith',     sub:'MODERN STACK · 300 W',  p:'linear-gradient(#2a2d33,#17191d)', pp:'#9aa0aa', k:'#d9dde5', g:W('#2a2a2a','#151515'), ink:'#d9dde5', logo:'#f43f5e', subc:'#9aa0aa', onbg:'#d9dde5', onfg:'#17191d'}],
   cabs:[{name:'1×15',sub:'Round, deep'},{name:'2×10',sub:'Punchy mids'},{name:'4×10',sub:'The stage cab'},
-        {name:'8×10',sub:'Big and slow'},{name:'DI',sub:'No cabinet'},{name:'Your IR',sub:'An impulse file'}] }; })();
+        {name:'8×10',sub:'Big and slow'},{name:'No cab',sub:'The amp, no speaker'},{name:'Your IR',sub:'An impulse file'}] }; })();
 /* ═════════════════════════════ BRIDGE ═════════════════════════════ */
 const J = window.__JUCE__ && window.__JUCE__.backend;
 let promiseId = 0;
@@ -1757,8 +1778,14 @@ function renderAmp(){
     row.appendChild(k);
   });
   panel.appendChild(row);
-  // lamp + the model's switches
+  // lamp, the amp's own on/off, then the model's switches
+  const aon=pick(S.amp,'on'), ampOn=!aon||aon.value>=0.5;
+  box.classList.toggle('ampoff',!ampOn);
   const lc=el('div','lampcol'); lc.appendChild(el('span','lamp'));
+  if(aon){ const f=el('button','flip'+(ampOn?' on':''),'<i></i>AMP');
+    f.setAttribute('aria-label','Amp '+(ampOn?'on':'off')+'. Off sends the pedals straight to the output');
+    f.onclick=()=>{ aon.value=ampOn?0:1; send('amp.on',aon.value); renderAmp(); };
+    lc.appendChild(f); }
   PRODUCT.ampSwitches.forEach(id=>{ if(vis.indexOf(id)<0) return; const p=pick(S.amp,id); if(!p) return;
     const f=el('button','flip'+(p.value>=0.5?' on':''),'<i></i>'+esc(p.label.toUpperCase()));
     f.setAttribute('aria-label',p.label+(p.value>=0.5?' on':' off'));
@@ -1769,15 +1796,21 @@ function renderAmp(){
   // grille + glass tray: cab and mic
   const gr=el('div','grille');
   const cone=(x,y,r)=>'radial-gradient(circle at '+x+' '+y+',rgba(0,0,0,.34) 0,rgba(0,0,0,.18) '+(r*0.45)+'px,rgba(0,0,0,.05) '+(r*0.8)+'px,transparent '+r+'px)';
-  const spk=(PRODUCT.speakers[cabModel()]||{c:[]}).c, rr=(PRODUCT.speakers[cabModel()]||{r:96}).r;
+  // Cab Off: no speaker cones on the grille, and the chip row shows Off lit
+  const con=pick(S.cab,'on'), cabOn=!con||con.value>=0.5;
+  box.classList.toggle('caboff',!cabOn);
+  const spk=cabOn?(PRODUCT.speakers[cabModel()]||{c:[]}).c:[], rr=(PRODUCT.speakers[cabModel()]||{r:96}).r;
   gr.style.backgroundImage=spk.map(([x,y])=>cone(x,y,rr)).concat([st.g]).join(',');
   gr.appendChild(el('span','plate','Low End'));
   const tray=el('div','tray');
   tray.appendChild(el('span','cap','Cab'));
   const cm=cabModel();
-  CABS.forEach((c,i)=>{ const b=el('button','cabchip'+(i===cm?' on':''),esc(c.name)); b.onclick=()=>{ send('cab.model',i); if(i===PRODUCT.cabIr) setTimeout(openCabSheet,120); }; tray.appendChild(b); });
+  if(con){ const off=el('button','cabchip'+(cabOn?'':' on'),'Off'); off.setAttribute('aria-label','Cab off: no speaker, the amp goes straight out');
+    off.onclick=()=>{ con.value=cabOn?0:1; send('cab.on',con.value); renderAmp(); }; tray.appendChild(off); }
+  CABS.forEach((c,i)=>{ const b=el('button','cabchip'+(i===cm&&cabOn?' on':''),esc(c.name));
+    b.onclick=()=>{ if(con&&!cabOn){ con.value=1; send('cab.on',1); } send('cab.model',i); if(i===PRODUCT.cabIr) setTimeout(openCabSheet,120); }; tray.appendChild(b); });
   const ax=pick(S.cab,'axis');
-  if(ax && cm!==PRODUCT.cabIr && cm!==PRODUCT.cabDi){
+  if(ax && cabOn && cm!==PRODUCT.cabIr && cm!==PRODUCT.cabDi){
     const mic=el('div','mic'); mic.appendChild(el('span','cap','Mic'));
     mic.appendChild(document.createTextNode('Centre'));
     const r=el('div','rng'); r.setAttribute('role','slider'); r.setAttribute('aria-label','Mic position, centre to edge');
@@ -1791,7 +1824,7 @@ function renderAmp(){
     tray.appendChild(mic);
   }
   const more=el('button','cabchip','More'); more.setAttribute('aria-label','Cab and mic settings'); more.onclick=openCabSheet;
-  if(cm===PRODUCT.cabIr||cm===PRODUCT.cabDi) more.style.marginLeft='auto';
+  if(!cabOn||cm===PRODUCT.cabIr||cm===PRODUCT.cabDi) more.style.marginLeft='auto';
   tray.appendChild(more);
   gr.appendChild(tray);
   box.appendChild(gr);
@@ -1815,7 +1848,7 @@ function openAmpModels(){
     b.onclick=()=>{ closeSheet(); send('amp.model',i); };
     body.appendChild(b);
   });
-  const note=el('div','help','Knob settings are kept when the model changes. Amp captures (NAM) are not supported. Cabinet impulse files load under Cab › Your IR.');
+  const note=el('div','help','Knob settings are kept when the model changes. To play your own amp capture, add the Your Amp pedal or drop a .nam file on the window. Cabinet impulse files load under Cab › Your IR. The AMP switch takes the amp out of the path, so the pedals go straight to the output.');
   note.style.marginTop='14px'; body.appendChild(note);
   openSheet({title:'Amp model', body, wide:true});
 }
@@ -1840,6 +1873,14 @@ function openRigSheet(){
   const body=el('div','ctls');
   const P=(list,id,label)=>{ const p=pick(list,id); if(p) body.appendChild(control(p,{label,col:'#3B82F6'})); };
   P(S.in,'trim','Input trim'); P(S.in,'gateOn','Gate'); P(S.in,'gateThreshold','Gate thresh'); P(S.in,'gateRelease','Gate release');
+  // Mains hum (single coils, a laptop supply) is what the amp turns into a buzz
+  // under the notes: the filter is here, where the noise is noticed, and in Settings.
+  { const w=el('div','ctl wide'); w.appendChild(el('div','lab','Hum filter'));
+    const sg=el('div','seg'); sg.setAttribute('role','radiogroup'); sg.setAttribute('aria-label','Hum filter');
+    const HZ=[0,50,60];
+    HZ.forEach((hz,j)=>{ const b=el('button',(S.humHz||0)===hz?'on':'',hz?hz+' Hz':'Off');
+      b.onclick=()=>{ cmd('hum',{hz}); [...sg.children].forEach((x,k)=>x.classList.toggle('on',k===j)); }; sg.appendChild(b); });
+    w.appendChild(sg); body.appendChild(w); }
   P(S.out,'master','Master'); P(S.out,'limiter','Limiter'); P(S.loop,'level','Loop level'); P(S.loop,'quantize','Loop snap'); P(S.loop,'playThrough','Hear '+PRODUCT.part);
   // Bass: the clean DI blended under the amp, and the tracked synth voice.
   if(PRODUCT.rigExtras){ P(S.in,'diOn','DI blend'); P(S.in,'diLevel','DI level'); P(S.in,'diLowPass','DI low-pass');
@@ -2094,9 +2135,24 @@ function renderStage(){
     add.onclick=()=>openSetPicker(sg); w.appendChild(add);
   }
   const pg=$('#scenePager'); pg.innerHTML=''; pg.hidden=pages<2;
+  if(pages>8){
+    // the whole preset list on a small card: arrows and a count, not sixty dots
+    const prev=el('button','pn','‹'), cnt=el('span','pc',(scenePage+1)+' / '+pages), next=el('button','pn','›');
+    prev.setAttribute('aria-label','Previous page'); next.setAttribute('aria-label','Next page');
+    prev.onclick=()=>{ scenePage=Math.max(0,scenePage-1); renderStage(); };
+    next.onclick=()=>{ scenePage=Math.min(pages-1,scenePage+1); renderStage(); };
+    pg.appendChild(prev); pg.appendChild(cnt); pg.appendChild(next);
+  } else
   for(let i=0;i<pages;i++){ const b=el('button',i===scenePage?'on':'','<i></i>'); b.setAttribute('aria-label','Page '+(i+1)); b.onclick=()=>{ scenePage=i; renderStage(); }; pg.appendChild(b); }
-  const lim=pick(S.out,'limiter');
+  const lim=pick(S.out,'limiter'), vol=pick(S.out,'master');
   $('#limTag').textContent = lim && lim.value>=0.5 ? 'Limiter on' : 'Limiter off';
+  // Volume and Limiter on the card itself. Not rebuilt under a finger on the dial.
+  const oc=$('#outCtl');
+  if(oc && !oc.querySelector('.dial:active')){
+    oc.innerHTML='';
+    if(vol) oc.appendChild(control(vol,{label:'Volume',col:'#3B82F6'}));
+    if(lim) oc.appendChild(control(lim,{label:'Limiter'}));
+  }
 }
 
 /* ═════════════════════════════ PRESET MENU ═════════════════════════════ */
